@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+tests/fixtures/*.mp4
+tests/fixtures/*.wav
+*.log
+.env
+.env.*
