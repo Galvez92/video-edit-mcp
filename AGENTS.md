@@ -49,3 +49,25 @@ node dist/index.js --http --port 3333   # Streamable HTTP on /mcp
 ## Memory (update every time)
 - `docs/memoria/BITACORA.md` — single append-only log. Add a dated entry (YYYY-MM-DD) per merged change: what, branch, tests.
 - `docs/memoria/ramas/<branch>.md` — one ficha per branch. Update its **Status** (pending → in-progress → review → merged) and notes. Do not create other copies.
+
+## Sandbox dev environment (Base44)
+
+`docker-compose.base44.yml` + `Dockerfile.base44` bring the server up for a live preview. Dev-only; CI and releases ignore them.
+
+- `mcp` — the server itself, run from the cloned source with `tsx watch`. The image only supplies the runtime and the system dependency (`ffmpeg`/`ffprobe`, which the server spawns as child processes); the repo is bind-mounted at `/app` and `npm ci` runs at startup against a `node_modules` volume, so no image rebuild is needed after an edit. Listens on `--host 0.0.0.0` (CLI flag; the code default stays `127.0.0.1`).
+- `web` — `nginx:alpine` front door on host port 3000. The server has no UI, so it serves `.base44/preview/index.html` (a status page that calls `tools/list` and `health` over the real endpoint) and reverse-proxies `/mcp` to `mcp:3333`, giving MCP clients one origin. The server is also reachable directly on host port 3333.
+- No application code or shared config needed a sandbox override, so nothing is gated on `BASE44_PREVIEW_MODE` and no host/Origin allowlist was touched. Neither process checks `Host`, and both bind all interfaces, so the preview proxy works as-is.
+- No external services, credentials, or `.env` files: per the hard rules above everything runs offline/local. The compose stack therefore has no secret wiring.
+
+```bash
+docker compose -f docker-compose.base44.yml up -d --build   # preview: http://localhost:3000/
+docker compose -f docker-compose.base44.yml logs -f mcp      # server log
+```
+
+Verify: `GET /` renders the status page with `ffmpeg` reported available; a `tools/list` (or `tools/call`) POST to `/mcp` returns `health` and `probe`, e.g.
+
+```bash
+curl -sX POST http://localhost:3000/mcp \
+  -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```

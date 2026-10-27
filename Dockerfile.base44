@@ -1,0 +1,14 @@
+# Sandbox-only image for the Base44 dev environment.
+# It provides the runtime (Node, engines: >=20) plus ffmpeg/ffprobe, which the
+# server spawns as child processes. Node 24's npm 11 is used because the
+# committed lockfile installs cleanly there with a plain `npm ci`; npm 10 in the
+# Node 20/22 images aborts with ERESOLVE on an optional peer mismatch between
+# vitest and @types/node. Application code is NOT baked in: the repo is
+# bind-mounted at /app and dependencies are installed at container startup.
+FROM node:24-bookworm-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
