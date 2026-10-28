@@ -104,3 +104,9 @@ Formato: `## YYYY-MM-DD — rama — resumen` + detalles (qué, tests, pendiente
 - AGENTS.md (sección "Dev sandbox") y ficha feat-core-ffmpeg reescritas sin nombre de proveedor. Sin menciones al proveedor en archivos versionados.
 - Ramas redundantes archivadas como tags `archive/core-ffmpeg-wrapper`, `archive/docs/hyperframes-engine`, `archive/<rama de setup del sandbox>` y borradas del remoto (OK del owner).
 - Ojo: la herramienta de build externa puede depender de la ruta antigua; revisar antes de fusionar.
+
+## 2026-10-28 — feat/render-captions — captions en el render final
+- `render` acepta `captions` (srt/vtt/cues/transcript + style/maxCharsPerLine/maxLines, `engine` auto|hyperframes|ffmpeg, `srtOutput`): el programa se compone a un temporal y luego se queman los captions con `renderCaptions` (args de video del preset + faststart, audio copiado). `auto` usa HyperFrames si el peer está, si no ffmpeg/libass con warning.
+- Se escribe el SRT usado junto a la salida (`<output>.srt`) y se reporta en `result.captions`; `export.package` lo incluye como `captions.srt` si no se pasa `subtitles` (`sidecarCaptions:false` lo desactiva).
+- Nuevo `src/core/caption-source.ts` (resolución de fuente compartida con `captions.*`, parser WebVTT, cues inline, objeto de `transcribe`). `caption-render` acepta `videoEncodeArgs`.
+- Tests `tests/render-captions.test.ts` (VTT, fuentes, burn-in medido por luma en clip negro, sidecar + ZIP, auto engine, errores). Rama **no** fusionada.
