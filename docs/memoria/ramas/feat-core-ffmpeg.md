@@ -28,7 +28,7 @@ Basic non-destructive editing: cut, trim and concatenate clips; `cut.assemble` f
 ## Notes
 - All work verified in a container with ffmpeg: `npm run lint`, `npm run typecheck`, `npm test` (24 tests, 0 skipped), `npm run build` all green; no media from third parties (synthetic `testsrc`/`sine` only).
 - The tools were also exercised against the running HTTP server (`POST /mcp` on the sandbox port): `health` (both binaries available), `trim` 0.5–1.5s of the 2s fixture → duration 1.0s, `concat` of two different geometries → 3.03s, invalid range → `isError`.
-- `npm ci` was already broken on `main`: the lockfile pinned `@types/node@20.19.43` while `vitest@5` needs `@types/node@^22 || >=24`, so npm aborted with `ERESOLVE` on Node 20 and 22 alike. This branch bumps `@types/node` to `^22.12.0` (types only, `engines` unchanged, two lock entries touched) so `npm ci` installs again — that fix also has to land on `main` for its CI to go green.
+- `npm ci` was already broken on `main`: the lockfile pinned `@types/node@20.19.43` while `vitest@5` needs `@types/node@^22 || >=24`, so npm aborted with `ERESOLVE`. This branch originally bumped `@types/node` to `^22.12.0`; that fix is now consolidated by the merged `docs/hyperframes-engine` branch (PR #1), which sets `engines.node` to `>=22` and `@types/node` to `^22.19.0`. `npm ci` installs again.
 - `scripts/make-fixtures.sh` gained: `testsrc-wide.mp4` (640x360@30, 44.1 kHz audio), `testsrc-b.mp4` (same layout as the reference clip), `silent.mp4` (video only).
 - Sandbox tooling (not application behaviour): `docker-compose.base44.yml` + `.base44/Dockerfile` run the HTTP transport from the cloned source with `tsx watch` on host port 3000.
 
