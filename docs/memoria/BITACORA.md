@@ -63,6 +63,42 @@ Formato: `## YYYY-MM-DD — rama — resumen` + detalles (qué, tests, pendiente
 
 - 2026-10-28: con `width` + `height` el `fit` por defecto de las capas pasa de `stretch` a `contain` (aprobado por el owner); `stretch` sigue disponible de forma explícita.
 
+## 2026-10-28 — feat/transcribe (rama `local-whisper-transcription`) — transcripción local con Whisper
+- Nuevo `src/core/whisper.ts`: backend Whisper **local y opcional** por CLI, sin dependencias npm nuevas ni addons nativos. whisper.cpp vía `-ojf` (tokens → palabras) y faster-whisper/whisper-ctranslate2 vía `--output_format json --word_timestamps`; detección lazy con caché en proceso y clasificación desde el `-h` del binario. Audio extraído con ffmpeg a 16 kHz mono en temporal que se borra siempre. Salida normalizada `{ language, backend, model?, segments:[{start,end,text,words?}] }`.
+- Tool `transcribe { input, model?, language?, wordTimestamps? }` (errores → `isError` con pista de instalación); `health` ahora incluye `whisper`.
+- Transporte HTTP: `GET /` devuelve una página índice (antes 404 `Not found`), usada también por el healthcheck del compose.
+- Tests: `tests/transcribe.test.ts` (parseadores de ambos formatos, error sin backend, error sin archivo, pipeline completo con el doble `tests/stub-whisper-cli.mjs` y fixture generado con `testsrc`/`sine`). Test end-to-end con backend real detrás de `VEM_WHISPER_TESTS=1`: ejecutado y en verde en el sandbox con `whisper-ctranslate2` 0.5.8 + modelo `base` (instalados ad hoc, fuera de la imagen) y también por HTTP (`POST /mcp`) con audio real; sin backend instalado el test se salta con aviso y queda **por revisar**. `tests/server.test.ts` actualizado a las 3 tools.
+- Entorno Base44: `docker-compose.base44.yml` + `docker/Dockerfile.base44` (node:22 + ffmpeg, código bind-mounted, `npm ci` + `tsx watch`, puerto 3000), `.base44/environment.json`, sección "Dev environment" en AGENTS.md.
+- Verificación: `lint`, `typecheck`, `build` y `test` en verde (sin backend real: ese caso queda por revisar). Rama **no** fusionada a main.
+
+## 2026-10-28 — feat/audio-mix (rama `local-whisper-transcription`) — mezcla de audio + loudnorm
+- Nuevo `src/core/audiomix.ts` y 3 tools: `audio.measure` (loudnorm → LUFS/TP/LRA), `audio.loudnorm` (two-pass, target **-14 LUFS** por defecto / -1.5 dBTP) y `audio.mix` (voz + música con ducking por `sidechaincompress`, `amix` sin renormalizar, `afade`, video copiado y audio a AAC 192k, `-shortest`). `duck.threshold` en dB → amplitud lineal para ffmpeg; fuentes forzadas a mono.
+- Tests `tests/audiomix.test.ts` (6: measure, loudnorm≈-14, mix 1 stream/duración=vídeo, y 3 error paths) con fixtures generados (testsrc/sine + clip sin audio). `tests/server.test.ts` actualizado a 6 tools.
+- Verificación: `lint`/`typecheck`/`build` en verde; 19 tests OK + 1 saltado (transcribe real, por revisar). Audio tools verificados además por HTTP con audio real (loudnorm → -13.95 LUFS; mix 2.0 s / 1 stream). Rama **no** fusionada a main.
+
+## 2026-10-28 — feat/captions — subtítulos SRT/ASS y captions animados + burn-in
+
+> Rama abierta, **sin fusionar a main** (queda en review).
+
+- `captions.generate`: segmentos de transcripción (inline o JSON) o un SRT → SRT, ASS o composición HyperFrames (HTML). Estilos `plain`, `karaoke` (resaltado por palabra), `pop` (escala de entrada) y `box` (placa de fondo); límites `maxCharsPerLine`/`maxLines` respetados.
+- `captions.render`: burn-in sobre el video conservando el audio de origen. Motor por defecto HyperFrames (capa alfa ProRes 4444 + overlay ffmpeg); motor `ffmpeg` con ASS/libass como respaldo, sin dependencia extra.
+- Núcleo: `src/core/subtitles.ts` (modelo de cues + palabras, SRT, ASS v4.00+, karaoke `\k`, pop `\t`, box `BorderStyle 3`), `src/core/captions.ts` (chunking y composición HyperFrames con un elemento temporizado por chunk, animaciones CSS word-pop/karaoke relativas al `data-start` del elemento), `src/core/hyperframes.ts` (import dinámico del peer opcional `@hyperframes/producer`; ausente → `isError` "unavailable"), `src/core/caption-render.ts` (selección de motor, guarda de sobrescritura, mux/encode con `-c:a copy`).
+- Fixture `tests/fixtures/sample.srt` (texto sintético) como entrada mientras `feat/transcribe` no está en la rama.
+- Tests: `subtitles`, `captions` (chunking + composición), `captions-tool` (MCP, caminos de error) y `captions-render` (ffmpeg real, se salta sin ffmpeg); `server.test.ts` actualizado a las cuatro tools. Total 38 tests en verde, más lint, typecheck y build.
+- Verificación end-to-end por el transporte HTTP: SRT → SRT idéntico, ASS con `[Events]`, composición con 3 chunks temporizados; render con motor `ffmpeg` sobre clip sintético → h264 + aac, duración 2.00 s, y el texto realmente dibujado (clip negro: `YMAX` 16 → 238).
+- Entorno del sandbox (`docker-compose.base44.yml`, `Dockerfile.base44`, `.base44/environment.json`): ffmpeg + `tsx watch` desde el código montado, transporte HTTP en el puerto 3000.
+- Pendiente: el camino de render HyperFrames no se pudo ejecutar en el sandbox (peer opcional con Chrome no instalado); su test se salta.
+
+## 2026-10-28 — feat/captions — tool MCP reframe (recorte, pad y seguimiento de sujeto)
+
+> Implementada en la rama `feat/captions` (ficha `feat/reframe`), **sin fusionar a main** (queda en review).
+
+- `reframe`: cambia el aspecto a `9:16`, `1:1`, `16:9` o `4:5`. Modos `crop` (recorte centrado, por defecto), `pad` (color sólido) y `blur-pad` (fondo borroso). En `crop`, `focusX`/`focusY` (0..1, defecto 0.5) sesgan el recorte y `follow: true` sigue al sujeto en el tiempo.
+- Detección de rostro: integración opcional y de **carga lazy** (`REFRAME_FACE_MODULE` → módulo que exporta un `FaceDetector` `{detect(input,opts)=>Promise<{t,cx,cy}[]>}`). Sin detector configurado, `follow` responde `isError` "unavailable" y el recorte centrado sigue funcionando. Sin nuevas dependencias en runtime (offline).
+- Lógica pura y testeada: `buildCropTrajectory` (selección de eje, clampeo, pares, expresión `crop` de ffmpeg piecewise-linear con escapes). Núcleo: `src/core/face-track.ts` (detector lazy + trayectoria), `src/core/reframe.ts` (aspectos, `cropWindow`/`cropOutput`/`focusOffset` + runner ffmpeg con `-c:a copy` y libx264/yuv420p), `src/tools/reframe.ts` (tool MCP). Registrada en `src/server.ts`.
+- Tests: `tests/face-track.test.ts` (puros) y `tests/reframe.test.ts` (ffmpeg real con fixtures): 320x240→9:16 = 136x240 (pares, ratio ±1px), 1:1/16:9/4:5, escalado a 1080, `pad` y `blur-pad`, y caminos de error (falta input, sin video, salida existente, aspecto inválido, `follow` fuera de crop, `follow` unavailable). 52 tests en verde; lint, typecheck y build OK.
+- Pendiente: el *runtime* de seguimiento (detector → frames → crop móvil) no se ejercita en sandbox/CI (sin detector); su camino unavailable sí está testeado, igual que el peer HyperFrames.
+
 ## 2026-10-28 — chore/remove-vendor-sandbox-config — config de sandbox genérica
 - Config de sandbox del proveedor renombrada a `.sandbox/` y `docker-compose.sandbox.yml`; labels del compose pasan a `sandbox.*`. Se conserva porque es el entorno de desarrollo en contenedor (Node 22 + ffmpeg, live reload, puerto 3000).
 - AGENTS.md (sección "Dev sandbox") y ficha feat-core-ffmpeg reescritas sin nombre de proveedor. Sin menciones al proveedor en archivos versionados.

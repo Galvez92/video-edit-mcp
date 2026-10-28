@@ -58,9 +58,18 @@ node dist/index.js --http --port 3333   # Streamable HTTP on /mcp
 ## Dev sandbox (container preview)
 - `docker-compose.sandbox.yml` runs the MCP server from the cloned source: `npm ci` at container start plus `tsx watch` (live reload), published on host port 3000 → container 3333. It is sandbox-only tooling; it does not change app behaviour.
 - Nothing else to configure: no secrets, no external services, no database. `.sandbox/Dockerfile` (sandbox-only, no source baked in) adds ffmpeg/ffprobe on top of `node:22`, so `health` reports both as available.
-- The preview iframe shows the MCP endpoint: `GET /` answers 404 by design (the route is `/mcp`); the entry point is `POST http://localhost:3000/mcp`.
+- `GET /` serves a small index page; MCP itself is `POST http://localhost:3000/mcp` (also what the compose healthcheck probes).
 - Run every check inside the container: `docker compose -f docker-compose.sandbox.yml exec -T mcp npm run lint|typecheck|test|build`. Tests generate their own synthetic fixtures; `npm run fixtures` writes them to `tests/fixtures` (git-ignored).
+- Caption burn-in (libass) needs `fonts-dejavu-core`; `.sandbox/Dockerfile` installs it alongside ffmpeg.
+- `@hyperframes/producer` is intentionally **not** installed in the sandbox (optional peer that pulls puppeteer + Chrome): its tests skip and `captions.render` reports the HyperFrames engine as unavailable, while the `ffmpeg` engine path runs for real.
 
 ## Memory (update every time)
 - `docs/memoria/BITACORA.md` — single append-only log. Add a dated entry (YYYY-MM-DD) per merged change: what, branch, tests.
 - `docs/memoria/ramas/<branch>.md` — one ficha per branch. Update its **Status** (pending → in-progress → review → merged) and notes. Do not create other copies.
+
+## Dev environment (sandbox)
+- Compose setup, ports and healthcheck: see "Dev sandbox (container preview)" above.
+- The sandbox host has no Node/ffmpeg of its own — run every check in that container:
+  Re-run `up -d` only when the image or `package-lock.json` changes.
+- No secrets are required; everything runs offline/local.
+- The image ships no Whisper backend (optional by design): build lint/test green either way, the `transcribe` end-to-end test only runs with `VEM_WHISPER_TESTS=1` plus an installed backend and model, and otherwise skips as "por revisar". It was verified with `pip3 install whisper-ctranslate2` inside the running container (ad hoc, not part of the image; a recreated container loses it). Backend install hints, env vars (`VEM_WHISPER_*`) and the stub used by the tests are documented in `docs/memoria/ramas/feat-transcribe.md`.
