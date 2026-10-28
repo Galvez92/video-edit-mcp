@@ -72,6 +72,15 @@ export interface RenderResult {
   overlay?: string;
   /** Number of layers composited. */
   layers?: number;
+  /** Measured from the output file. */
+  width?: number;
+  height?: number;
+  fps?: number;
+  videoCodec?: string;
+  audioCodec?: string;
+  bytes?: number;
+  /** Non-fatal notes, e.g. a layer clamped into the frame. Empty when nothing was adjusted. */
+  warnings: string[];
 }
 
 function guardOutput(output: string, overwrite?: boolean): void {
@@ -133,6 +142,7 @@ export async function render(req: RenderRequest): Promise<RenderResult> {
   }
 
   let tmp: string | undefined;
+  let warnings: string[] | undefined;
   try {
     const layers: GraphLayer[] = [];
     for (const [i, l] of reqLayers.entries()) {
@@ -142,10 +152,12 @@ export async function render(req: RenderRequest): Promise<RenderResult> {
         src = join(tmp, `layer${i}.webm`);
         await compose({ composition: l.hyperframes, output: src, format: "webm", fps: (preset as VideoPreset).fps });
       }
-      layers.push({ src, startSec: l.startSec, durationSec: l.durationSec, zIndex: l.zIndex ?? i, x: l.x, y: l.y, scale: l.scale, fadeInSec: l.fadeInSec, fadeOutSec: l.fadeOutSec, enter: l.enter, exit: l.exit });
+      const sv = (await probe(src)).streams.find((s) => s.type === "video");
+      layers.push({ src, startSec: l.startSec, durationSec: l.durationSec, zIndex: l.zIndex ?? i, x: l.x, y: l.y, scale: l.scale, scaleMode: l.scaleMode, width: l.width, height: l.height, fit: l.fit, srcWidth: sv?.width, srcHeight: sv?.height, fadeInSec: l.fadeInSec, fadeOutSec: l.fadeOutSec, enter: l.enter, exit: l.exit });
     }
     const target = preset.kind === "video" ? { kind: "video" as const, width: preset.width, height: preset.height, fps: preset.fps } : { kind: "audio" as const };
     const g = buildTimelineGraph(tl, target, sources, { layers });
+    warnings = g.warnings;
     const args = ["-y", ...g.inputArgs, "-filter_complex", g.filterComplex];
     for (const m of g.maps) args.push("-map", m);
     if (preset.kind === "video") args.push(...videoEncodeArgs(preset), ...audioEncodeArgs(preset.audioBitrate));
@@ -158,7 +170,15 @@ export async function render(req: RenderRequest): Promise<RenderResult> {
     if (tmp) rmSync(tmp, { recursive: true, force: true });
   }
   const out = await probe(req.output);
-  return { output: req.output, preset: req.preset, durationSec: out.durationSec ?? 0, ...(req.overlay || req.hyperframes ? { overlay: req.hyperframes ? "hyperframes" : req.overlay } : {}), ...(reqLayers.length ? { layers: reqLayers.length } : {}) };
+  const ov = out.streams.find((s) => s.type === "video");
+  const oa = out.streams.find((s) => s.type === "audio");
+  return {
+    output: req.output, preset: req.preset, durationSec: out.durationSec ?? 0,
+    ...(req.overlay || req.hyperframes ? { overlay: req.hyperframes ? "hyperframes" : req.overlay } : {}),
+    ...(reqLayers.length ? { layers: reqLayers.length } : {}),
+    width: ov?.width, height: ov?.height, fps: ov?.fps, videoCodec: ov?.codec, audioCodec: oa?.codec, bytes: out.sizeBytes,
+    warnings: warnings ?? [],
+  };
 }
 
 export interface Loudness {

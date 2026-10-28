@@ -154,7 +154,7 @@ export function createServer(): McpServer {
     "render",
     {
       description:
-        "Encode a file or assemble a timeline with a fixed delivery preset: web-1080p (16:9), vertical-9x16, square (H.264+AAC, fit-and-pad) or audio-only (AAC .m4a). Optional alpha overlay / HyperFrames layers on top (timed, stacked by zIndex, positioned and scaled).",
+        "Encode a file or assemble a timeline with a fixed delivery preset: web-1080p (16:9), vertical-9x16, square (H.264+AAC, fit-and-pad) or audio-only (AAC .m4a). Optional alpha overlay / HyperFrames layers on top (timed, stacked by zIndex, positioned and sized keeping their aspect; off-frame layers are clamped and reported in warnings). Returns measured width/height/fps/codecs/bytes.",
       inputSchema: {
         input: z.string().min(1).optional().describe("Source media path (or pass timeline)"),
         timeline: timelineSchema.optional().describe("Timeline: first video track is the program (clips trimmed by in/out, placed by startSec or back-to-back, joined by transitions); audio tracks are mixed under it"),
@@ -172,7 +172,11 @@ export function createServer(): McpServer {
               zIndex: z.number().optional().describe("Stacking order, higher on top (default: array order)"),
               x: z.number().min(0).optional().describe("Left position in output pixels (default 0)"),
               y: z.number().min(0).optional().describe("Top position in output pixels (default 0)"),
-              scale: z.number().positive().max(1).optional().describe("Size as a fraction of the output frame (default 1)"),
+              scale: z.number().positive().max(10).optional().describe("Uniform size, source aspect kept. scaleMode frame-width (default): layer width = scale × frame width, (0,1]. native: scale × source pixel size, (0,10]"),
+              scaleMode: z.enum(["frame-width", "native"]).optional().describe("How scale is measured (default frame-width)"),
+              width: z.number().min(2).optional().describe("Layer width in px; alone keeps the source aspect"),
+              height: z.number().min(2).optional().describe("Layer height in px; alone keeps the source aspect; with width = explicit box (see fit)"),
+              fit: z.enum(["contain", "cover", "stretch"]).optional().describe("How the source fills an explicit box or, with no size, the full frame: stretch (default), contain, cover"),
               fadeInSec: z.number().positive().optional().describe("Alpha fade-in at the layer start (s)"),
               fadeOutSec: z.number().positive().optional().describe("Alpha fade-out before the layer end (s); needs durationSec; fadeIn+fadeOut must fit"),
               enter: motionSchema.optional().describe("Entry motion: slide-left/right/up/down from off-frame, or scale up from zero"),

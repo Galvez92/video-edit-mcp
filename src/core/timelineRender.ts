@@ -24,6 +24,8 @@ export interface TimelineGraph {
   /** Output labels to `-map`. */
   maps: string[];
   durationSec: number;
+  /** Non-fatal layout notes (e.g. a layer clamped into the frame). */
+  warnings: string[];
 }
 
 /** One alpha video layer composited over the program. */
@@ -39,8 +41,24 @@ export interface GraphLayer {
   /** Top-left position in output pixels. Default 0,0. */
   x?: number;
   y?: number;
-  /** Size as a fraction of the output frame (0 < scale <= 1). Default 1 (full frame). */
+  /**
+   * Uniform size factor; the layer always keeps its source aspect ratio.
+   * `scaleMode: "frame-width"` (default): layer width = scale × frame width (0 < scale <= 1).
+   * `scaleMode: "native"`: layer size = scale × the source's own pixel size (0 < scale <= 10).
+   */
   scale?: number;
+  scaleMode?: LayerScaleMode;
+  /** Target width/height in output px. One of them keeps the source aspect; both = an explicit box (see `fit`). */
+  width?: number;
+  height?: number;
+  /**
+   * How the source fills an explicit box (width+height, or the full frame when no size is given):
+   * `stretch` (default, exact box), `contain` (fit inside, centred, keeps aspect), `cover` (fill and crop, keeps aspect).
+   */
+  fit?: LayerFit;
+  /** Source pixel size (filled in by `render` from ffprobe). Without it the source is assumed to have the frame's aspect. */
+  srcWidth?: number;
+  srcHeight?: number;
   /** Alpha fade-in at the layer start (s). */
   fadeInSec?: number;
   /** Alpha fade-out before the layer end (s); needs `durationSec`. */
@@ -49,6 +67,70 @@ export interface GraphLayer {
   enter?: LayerMotion;
   /** Exit motion out of frame (slide) or down to zero size (scale); needs `durationSec`. */
   exit?: LayerMotion;
+}
+
+export const LAYER_SCALE_MODES = ["frame-width", "native"] as const;
+export type LayerScaleMode = (typeof LAYER_SCALE_MODES)[number];
+export const LAYER_FITS = ["contain", "cover", "stretch"] as const;
+export type LayerFit = (typeof LAYER_FITS)[number];
+
+export interface LayerLayout {
+  /** Scaled source size before any crop. */
+  sw: number;
+  sh: number;
+  /** Final on-frame size (after a `cover` crop). */
+  w: number;
+  h: number;
+  x: number;
+  y: number;
+  crop: boolean;
+  warnings: string[];
+}
+
+const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
+
+/** Resolve a layer's on-frame size and position (aspect kept unless `stretch` with an explicit box), clamping it into the frame. */
+export function layoutLayer(l: GraphLayer, W: number, H: number, label = "layer"): LayerLayout {
+  const srcW = l.srcWidth && l.srcWidth > 0 ? l.srcWidth : W;
+  const srcH = l.srcHeight && l.srcHeight > 0 ? l.srcHeight : H;
+  const ar = srcW / srcH;
+  const warnings: string[] = [];
+  let sw: number, sh: number;
+  let boxW: number | undefined, boxH: number | undefined;
+  if (l.width !== undefined && l.height !== undefined) [boxW, boxH] = [l.width, l.height];
+  else if (l.width !== undefined) [sw, sh] = [l.width, l.width / ar];
+  else if (l.height !== undefined) [sw, sh] = [l.height * ar, l.height];
+  else if (l.scale !== undefined) {
+    if ((l.scaleMode ?? "frame-width") === "native") [sw, sh] = [srcW * l.scale, srcH * l.scale];
+    else [sw, sh] = [W * l.scale, (W * l.scale) / ar];
+  } else [boxW, boxH] = [W, H]; // no size: fill the frame (previous behaviour)
+  let w: number, h: number;
+  let offX = 0, offY = 0, crop = false;
+  if (boxW !== undefined && boxH !== undefined) {
+    const fit = l.fit ?? "stretch";
+    if (fit === "stretch") [sw, sh] = [boxW, boxH];
+    else {
+      const k = fit === "contain" ? Math.min(boxW / srcW, boxH / srcH) : Math.max(boxW / srcW, boxH / srcH);
+      [sw, sh] = [srcW * k, srcH * k];
+      if (fit === "contain") [offX, offY] = [(boxW - sw) / 2, (boxH - sh) / 2];
+      else crop = true;
+    }
+    sw = even(sw); sh = even(sh);
+    [w, h] = crop ? [even(boxW), even(boxH)] : [sw, sh];
+  } else {
+    sw = even(sw!); sh = even(sh!);
+    [w, h] = [sw, sh];
+  }
+  let x = Math.round((l.x ?? 0) + offX);
+  let y = Math.round((l.y ?? 0) + offY);
+  if (w > W || h > H) warnings.push(`${label}: ${w}x${h} is larger than the ${W}x${H} frame; it will be cropped by the frame edge`);
+  const cx = Math.max(0, Math.min(x, W - w));
+  const cy = Math.max(0, Math.min(y, H - h));
+  if (cx !== x || cy !== y) {
+    warnings.push(`${label}: ${w}x${h} at (${x},${y}) extends off the ${W}x${H} frame; position clamped to (${cx},${cy})`);
+    [x, y] = [cx, cy];
+  }
+  return { sw, sh, w, h, x, y, crop, warnings };
 }
 
 export const LAYER_MOTIONS = ["slide-left", "slide-right", "slide-up", "slide-down", "scale"] as const;
@@ -71,7 +153,13 @@ export function orderLayers(layers: GraphLayer[]): GraphLayer[] {
   layers.forEach((l, i) => {
     if ((l.startSec ?? 0) < 0) throw new Error(`layer ${i}: startSec must be >= 0`);
     if (l.durationSec !== undefined && !(l.durationSec > 0)) throw new Error(`layer ${i}: durationSec must be > 0`);
-    if (l.scale !== undefined && !(l.scale > 0 && l.scale <= 1)) throw new Error(`layer ${i}: scale must be in (0, 1]`);
+    if (l.scaleMode !== undefined && !LAYER_SCALE_MODES.includes(l.scaleMode)) throw new Error(`layer ${i}: unknown scaleMode ${l.scaleMode}`);
+    if (l.fit !== undefined && !LAYER_FITS.includes(l.fit)) throw new Error(`layer ${i}: unknown fit ${l.fit}`);
+    const maxScale = l.scaleMode === "native" ? 10 : 1;
+    if (l.scale !== undefined && !(l.scale > 0 && l.scale <= maxScale)) throw new Error(`layer ${i}: scale must be in (0, ${maxScale}]`);
+    for (const k of ["width", "height"] as const)
+      if (l[k] !== undefined && !(l[k]! >= 2)) throw new Error(`layer ${i}: ${k} must be >= 2 px`);
+    if (l.scale !== undefined && (l.width !== undefined || l.height !== undefined)) throw new Error(`layer ${i}: pass scale or width/height, not both`);
     for (const k of ["fadeInSec", "fadeOutSec"] as const)
       if (l[k] !== undefined && !(l[k]! > 0)) throw new Error(`layer ${i}: ${k} must be > 0`);
     for (const k of ["enter", "exit"] as const) {
@@ -244,6 +332,7 @@ export function buildTimelineGraph(tl: Timeline, target: GraphTarget, sources: S
   }
 
   let videoOut = programVideo;
+  const warnings: string[] = [];
   const layers = [...(opts.layers ?? [])];
   if (opts.overlay) layers.unshift({ src: opts.overlay, startSec: opts.layerStartSec, durationSec: opts.layerDurationSec });
   if (layers.length && !programVideo) throw new Error("layers need a video program");
@@ -257,11 +346,9 @@ export function buildTimelineGraph(tl: Timeline, target: GraphTarget, sources: S
       const st = l.startSec ?? 0;
       const shift = st > 0 ? `+${num(st)}/TB` : "";
       const enable = l.durationSec ? `:enable='between(t,${num(st)},${num(st + l.durationSec)})'` : "";
-      const sc = l.scale ?? 1;
-      const lw = Math.max(2, Math.round((w * sc) / 2) * 2);
-      const lh = Math.max(2, Math.round((h * sc) / 2) * 2);
-      const X = Math.round(l.x ?? 0);
-      const Y = Math.round(l.y ?? 0);
+      const lay = layoutLayer(l, w, h, `layer ${n}`);
+      warnings.push(...lay.warnings);
+      const { w: lw, h: lh, x: X, y: Y } = lay;
       const end = l.durationSec !== undefined ? st + l.durationSec : undefined;
       // Motion progress (0→1) in program time t: p = entry progress, q = exit progress.
       const p = l.enter ? `clip((t-${num(st)})/${num(l.enter.durationSec)},0,1)` : "1";
@@ -281,7 +368,7 @@ export function buildTimelineGraph(tl: Timeline, target: GraphTarget, sources: S
       off(l.enter, p);
       off(l.exit, q);
       const scaling = l.enter?.type === "scale" || l.exit?.type === "scale";
-      let geom = `scale=${lw}:${lh}`;
+      let geom = `scale=${lay.sw}:${lay.sh}` + (lay.crop ? `,crop=${lw}:${lh}` : "");
       if (scaling) {
         const f = `max(0.01,${l.enter?.type === "scale" ? p : "1"}*(1-${l.exit?.type === "scale" ? q : "0"}))`;
         geom = `scale=w='max(2,trunc(${lw}*${f}/2)*2)':h='max(2,trunc(${lh}*${f}/2)*2)':eval=frame`;
@@ -307,5 +394,6 @@ export function buildTimelineGraph(tl: Timeline, target: GraphTarget, sources: S
     filterComplex: parts.join(";"),
     maps: [...(videoOut ? [videoOut] : []), audioOut],
     durationSec: duration,
+    warnings,
   };
 }

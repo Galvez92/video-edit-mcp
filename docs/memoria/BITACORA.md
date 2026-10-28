@@ -55,3 +55,8 @@ Formato: `## YYYY-MM-DD — rama — resumen` + detalles (qué, tests, pendiente
 - Capas: `fadeInSec`/`fadeOutSec` (fade alfa) y `enter`/`exit` (slide-left/right/up/down, scale) con `durationSec`; se valida que fades y movimientos quepan en la duración de la capa.
 - Audio: `transition.curve` y `audioFade {inSec,outSec,curve}` con linear/exponential/log/s-curve/equal-power (tri/exp/log/hsin/qsin), misma curva en ambos lados del crossfade. Video sin cambios.
 - Tests: 69/69 verdes en Node 22 (incluye HyperFrames reales). Pendiente de la rama: nada dentro de su alcance.
+
+## 2026-10-28 · feat/render-export · fix: tamaño de capas con proporción
+- Bug de la demo: `scale` era fracción del cuadro en ambos ejes y deformaba capas pequeñas (insignia 360x120 → ~356x634, fuera de cuadro).
+- Ahora las capas conservan su proporción: `scale` = fracción del ancho del cuadro (`scaleMode: native` = fracción del tamaño propio), `width`/`height` en px, `fit: contain|cover|stretch`; sin tamaño se comportan igual que antes (cuadro completo). Posición fuera de cuadro se ajusta y se reporta en `warnings`. El resultado de `render` trae width/height/fps/codecs/bytes medidos.
+- Tests: 79/79 verdes en Node 22 (incluye HyperFrames reales).
