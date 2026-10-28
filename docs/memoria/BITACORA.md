@@ -29,3 +29,13 @@ Formato: `## YYYY-MM-DD — rama — resumen` + detalles (qué, tests, pendiente
 - Verificación end-to-end por el transporte HTTP: SRT → SRT idéntico, ASS con `[Events]`, composición con 3 chunks temporizados; render con motor `ffmpeg` sobre clip sintético → h264 + aac, duración 2.00 s, y el texto realmente dibujado (clip negro: `YMAX` 16 → 238).
 - Entorno del sandbox (`docker-compose.base44.yml`, `Dockerfile.base44`, `.base44/environment.json`): ffmpeg + `tsx watch` desde el código montado, transporte HTTP en el puerto 3000.
 - Pendiente: el camino de render HyperFrames no se pudo ejecutar en el sandbox (peer opcional con Chrome no instalado); su test se salta.
+
+## 2026-10-28 — feat/captions — tool MCP reframe (recorte, pad y seguimiento de sujeto)
+
+> Implementada en la rama `feat/captions` (ficha `feat/reframe`), **sin fusionar a main** (queda en review).
+
+- `reframe`: cambia el aspecto a `9:16`, `1:1`, `16:9` o `4:5`. Modos `crop` (recorte centrado, por defecto), `pad` (color sólido) y `blur-pad` (fondo borroso). En `crop`, `focusX`/`focusY` (0..1, defecto 0.5) sesgan el recorte y `follow: true` sigue al sujeto en el tiempo.
+- Detección de rostro: integración opcional y de **carga lazy** (`REFRAME_FACE_MODULE` → módulo que exporta un `FaceDetector` `{detect(input,opts)=>Promise<{t,cx,cy}[]>}`). Sin detector configurado, `follow` responde `isError` "unavailable" y el recorte centrado sigue funcionando. Sin nuevas dependencias en runtime (offline).
+- Lógica pura y testeada: `buildCropTrajectory` (selección de eje, clampeo, pares, expresión `crop` de ffmpeg piecewise-linear con escapes). Núcleo: `src/core/face-track.ts` (detector lazy + trayectoria), `src/core/reframe.ts` (aspectos, `cropWindow`/`cropOutput`/`focusOffset` + runner ffmpeg con `-c:a copy` y libx264/yuv420p), `src/tools/reframe.ts` (tool MCP). Registrada en `src/server.ts`.
+- Tests: `tests/face-track.test.ts` (puros) y `tests/reframe.test.ts` (ffmpeg real con fixtures): 320x240→9:16 = 136x240 (pares, ratio ±1px), 1:1/16:9/4:5, escalado a 1080, `pad` y `blur-pad`, y caminos de error (falta input, sin video, salida existente, aspecto inválido, `follow` fuera de crop, `follow` unavailable). 52 tests en verde; lint, typecheck y build OK.
+- Pendiente: el *runtime* de seguimiento (detector → frames → crop móvil) no se ejercita en sandbox/CI (sin detector); su camino unavailable sí está testeado, igual que el peer HyperFrames.

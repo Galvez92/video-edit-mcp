@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { health, probe } from "./core/ffmpeg.js";
 import { registerCaptionTools } from "./tools/captions.js";
+import { registerReframeTool } from "./tools/reframe.js";
 import { fail, json } from "./tools/result.js";
 
 export const SERVER_NAME = "video-edit-mcp";
@@ -33,6 +34,7 @@ export function createServer(): McpServer {
   );
 
   registerCaptionTools(server);
+  registerReframeTool(server);
 
   return server;
 }
