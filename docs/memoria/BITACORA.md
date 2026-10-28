@@ -27,6 +27,42 @@ Formato: `## YYYY-MM-DD — rama — resumen` + detalles (qué, tests, pendiente
 - Verificado además contra el servidor HTTP en marcha: `health`, `trim` 0.5–1.5 s → 1.0 s, `concat` de dos geometrías → 3.03 s y rango inválido → `isError`.
 - Pendiente en la rama: `cut.assemble` desde un `Timeline`. Sin releases ni fusión a `main`.
 
+## 2026-10-27 — feat/render-export — presets de encode, export.package y compose opcional
+- `core/render.ts`: presets `web-1080p`, `vertical-9x16`, `square` (H.264+AAC, fit-and-pad, 30 fps) y `audio-only` (AAC .m4a); `measureLoudness()` con pasada de análisis `loudnorm` (sin valores fijos); `exportPackage()` → ZIP con media, `captions.srt` opcional, `spec.json` medido con ffprobe y `checksums.sha256`.
+- `core/zip.ts`: escritor ZIP sin dependencias (`node:zlib` deflate + crc32).
+- `core/compose.ts`: import perezoso de `@hyperframes/producer`; si falta, "unavailable".
+- Tools MCP: `render`, `export.package`, `compose`. Tests en `tests/render.test.ts` con fixtures generados por ffmpeg. Base: origin/main 60d4d2f. PR en draft, sin fusión.
+
+## 2026-10-28 — feat/render-export — render desde Timeline + HyperFrames real
+- `core/timelineRender.ts` (nuevo): `buildTimelineGraph()` → inputs `-ss/-t`, programa = primera pista de video (fit-and-pad + fps del preset, silencio si el clip no tiene audio, concat), pistas de audio concatenadas y mezcladas con `amix` (respeta `gainDb`), overlay alfa opcional (webm VP9 con libvpx-vp9).
+- `render` acepta `input` o `timeline` (exactamente uno), y `overlay` (video alfa) o `hyperframes` (composición HTML → webm alfa con HyperFrames → overlay).
+- `compose` ahora renderiza de verdad con `@hyperframes/producer` 0.8.210 (`createRenderJob`/`executeRenderJob`, formatos mp4/webm/mov), devDependency local + peer opcional; logs solo warn/error a stderr.
+- Tests: `timeline-render.test.ts` y `hyperframes.test.ts` (se salta solo sin producer/Chrome). 43/43 verdes en Node 22 con Chrome; 41 + 2 skipped con `VEM_SKIP_HYPERFRAMES=1`. CI: job principal sin Chrome + job opcional `hyperframes`.
+- vitest en serie (`fileParallelism: false`, timeouts 60 s) por timeouts bajo carga. Pendiente: transiciones y posición de clips/capa en el tiempo.
+
+## 2026-10-28 · feat/render-export · transiciones, posición en el tiempo y capa con offset
+- `Clip.startSec` y `Clip.transition {type, durationSec}`; `placeClips()` resuelve posiciones, rellena huecos (negro + silencio) y rechaza solapes sin transición.
+- Transiciones `xfade` + `acrossfade` (crossfade, dissolve, fadeblack, fadewhite, wipe/slide izq/der), validadas contra la duración de los clips vecinos.
+- Pistas de audio con `adelay` por clip + `amix`. `render.layerStartSec` / `layerDurationSec` para `overlay` y `hyperframes`.
+- Tests: 53/53 verdes en Node 22 (incluye 3 HyperFrames reales con Chrome). Pendiente: varias capas HyperFrames por render.
+
+## 2026-10-28 · feat/render-export · varias capas por render y crossfade en pistas de audio
+- `render.layers[]` (`overlay` | `hyperframes`, `startSec`, `durationSec`, `zIndex`, `x`, `y`, `scale`) compuestas en orden de zIndex; `overlay`/`hyperframes`/`layerStartSec`/`layerDurationSec` siguen funcionando (se mapean a la primera capa).
+- Pistas de audio: `transition crossfade|dissolve` solapa los clips automáticamente (fades tri emparejados + amix, equivalente a acrossfade; acrossfade literal se descartó porque deja el bed en silencio al mezclarlo junto a un programa de video). Otros tipos se rechazan en audio.
+- Tests: 61/61 verdes en Node 22 con Chrome (incluye 4 HyperFrames reales).
+
+## 2026-10-28 · feat/render-export · animación de capas y curvas de audio
+- Capas: `fadeInSec`/`fadeOutSec` (fade alfa) y `enter`/`exit` (slide-left/right/up/down, scale) con `durationSec`; se valida que fades y movimientos quepan en la duración de la capa.
+- Audio: `transition.curve` y `audioFade {inSec,outSec,curve}` con linear/exponential/log/s-curve/equal-power (tri/exp/log/hsin/qsin), misma curva en ambos lados del crossfade. Video sin cambios.
+- Tests: 69/69 verdes en Node 22 (incluye HyperFrames reales). Pendiente de la rama: nada dentro de su alcance.
+
+## 2026-10-28 · feat/render-export · fix: tamaño de capas con proporción
+- Bug de la demo: `scale` era fracción del cuadro en ambos ejes y deformaba capas pequeñas (insignia 360x120 → ~356x634, fuera de cuadro).
+- Ahora las capas conservan su proporción: `scale` = fracción del ancho del cuadro (`scaleMode: native` = fracción del tamaño propio), `width`/`height` en px, `fit: contain|cover|stretch`; sin tamaño se comportan igual que antes (cuadro completo). Posición fuera de cuadro se ajusta y se reporta en `warnings`. El resultado de `render` trae width/height/fps/codecs/bytes medidos.
+- Tests: 79/79 verdes en Node 22 (incluye HyperFrames reales).
+
+- 2026-10-28: con `width` + `height` el `fit` por defecto de las capas pasa de `stretch` a `contain` (aprobado por el owner); `stretch` sigue disponible de forma explícita.
+
 ## 2026-10-28 — chore/remove-vendor-sandbox-config — config de sandbox genérica
 - Config de sandbox del proveedor renombrada a `.sandbox/` y `docker-compose.sandbox.yml`; labels del compose pasan a `sandbox.*`. Se conserva porque es el entorno de desarrollo en contenedor (Node 22 + ffmpeg, live reload, puerto 3000).
 - AGENTS.md (sección "Dev sandbox") y ficha feat-core-ffmpeg reescritas sin nombre de proveedor. Sin menciones al proveedor en archivos versionados.
