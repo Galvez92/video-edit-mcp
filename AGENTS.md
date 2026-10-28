@@ -1,11 +1,14 @@
 # AGENTS.md — repo memory & rules for coding agents
 
 ## What this is
-`video-edit-mcp`: an open-source (MIT) MCP server that lets any assistant edit video using ffmpeg.
+`video-edit-mcp`: an open-source (MIT) MCP server that lets any assistant edit video. Two engines:
+- **HyperFrames** (Apache-2.0, `@hyperframes/producer`) — PRIMARY engine for animated captions, graphics/overlays and composition (HTML → frames via headless Chrome).
+- **ffmpeg** — cut/trim/concat, audio mix/loudnorm, final encode/mux.
 
 ## Stack
-- Node 20+, TypeScript (ESM, `NodeNext`), `@modelcontextprotocol/sdk` + `zod`.
+- Node 22+, TypeScript (ESM, `NodeNext`), `@modelcontextprotocol/sdk` + `zod`.
 - ffmpeg/ffprobe spawned as child processes (never via a shell; pass args as arrays).
+- HyperFrames: optional peer dependency `@hyperframes/producer` (Node ≥22, pulls puppeteer + headless Chrome). Import it dynamically; if missing, tools report `unavailable` (isError) instead of crashing.
 - Tests: vitest. Lint: eslint (flat config). CI: `.github/workflows/ci.yml`.
 
 ## Commands
@@ -38,6 +41,12 @@ node dist/index.js --http --port 3333   # Streamable HTTP on /mcp
 - `main` is always green. Work in `feat/<name>`, `chore/<name>`, `docs/<name>`; open a PR to `main`.
 - Order: `feat/core-ffmpeg` → (`feat/transcribe`, `feat/captions`, `feat/reframe`, `feat/audio-mix` in parallel) → `feat/render-export` → `feat/interchange` → `docs/readme`. `chore/tests-fixtures` can run anytime.
 - No per-branch copies of config (tsconfig, eslint, CI, AGENTS.md). Shared config changes go to `main` first.
+
+## Engine split rules
+- Captions, overlays, titles, lower-thirds, compositions → HyperFrames renders the visual layer; ffmpeg muxes/encodes the result with source audio.
+- Never reimplement in ASS what HyperFrames covers; SRT/ASS stay as interchange/export formats and an ffmpeg fallback when HyperFrames is unavailable.
+- Use HyperFrames only through its public npm API. Keep its Apache-2.0 notice: credit it in README "Third-party" section; do not vendor its source.
+- HyperFrames tests skip when the package or Chrome is absent (like ffmpeg tests).
 
 ## Hard rules
 - **No vendor or product names** of any private company/platform in code, docs, commits, or test data. Generic terms only.

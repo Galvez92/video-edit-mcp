@@ -7,7 +7,7 @@ Servidor [Model Context Protocol](https://modelcontextprotocol.io) de código ab
 > Estado: inicial. `main` incluye `health` y `probe`; `trim`, `cut` y `concat` llegan desde `feat/core-ffmpeg`.
 
 ## Inicio rápido
-Requisitos: Node 20+, ffmpeg y ffprobe en el `PATH`.
+Requisitos: Node 22+, ffmpeg y ffprobe en el `PATH`.
 
 ```bash
 npm ci && npm run build
@@ -31,8 +31,8 @@ Configuración de cliente MCP (stdio):
 
 ## Hoja de ruta
 1. Cortar / recortar / concatenar / ensamblar timeline
-2. Transcripción local (Whisper) · subtítulos animados (SRT/ASS + quemado) · reencuadre 9:16/1:1/16:9 · mezcla de audio, ducking, loudnorm −16 LUFS
-3. Presets de render + exportación ZIP (video + SRT + spec.json)
+2. Transcripción local (Whisper) · subtítulos animados renderizados con HyperFrames (exporta SRT/ASS + respaldo ffmpeg) · reencuadre 9:16/1:1/16:9 · mezcla de audio, ducking, loudnorm −16 LUFS
+3. Composición HyperFrames (overlays, títulos) + presets de render ffmpeg + exportación ZIP (video + SRT + spec.json)
 4. Importación EDL / OTIO
 
 ## Desarrollo
@@ -41,3 +41,7 @@ npm test        # las pruebas con ffmpeg se omiten si no está instalado
 npm run lint && npm run typecheck
 ```
 Convenciones en [AGENTS.md](AGENTS.md).
+
+## Terceros
+- [HyperFrames](https://github.com/heygen-com/hyperframes) (Apache-2.0) — dependencia peer opcional, motor de composición/subtítulos.
+- ffmpeg — se invoca como binario externo.
