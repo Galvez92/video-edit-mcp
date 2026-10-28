@@ -32,3 +32,10 @@ Formato: `## YYYY-MM-DD — rama — resumen` + detalles (qué, tests, pendiente
 - `core/zip.ts`: escritor ZIP sin dependencias (`node:zlib` deflate + crc32).
 - `core/compose.ts`: import perezoso de `@hyperframes/producer`; si falta, "unavailable".
 - Tools MCP: `render`, `export.package`, `compose`. Tests en `tests/render.test.ts` con fixtures generados por ffmpeg. Base: origin/main 60d4d2f. PR en draft, sin fusión.
+
+## 2026-10-28 — feat/render-export — render desde Timeline + HyperFrames real
+- `core/timelineRender.ts` (nuevo): `buildTimelineGraph()` → inputs `-ss/-t`, programa = primera pista de video (fit-and-pad + fps del preset, silencio si el clip no tiene audio, concat), pistas de audio concatenadas y mezcladas con `amix` (respeta `gainDb`), overlay alfa opcional (webm VP9 con libvpx-vp9).
+- `render` acepta `input` o `timeline` (exactamente uno), y `overlay` (video alfa) o `hyperframes` (composición HTML → webm alfa con HyperFrames → overlay).
+- `compose` ahora renderiza de verdad con `@hyperframes/producer` 0.8.210 (`createRenderJob`/`executeRenderJob`, formatos mp4/webm/mov), devDependency local + peer opcional; logs solo warn/error a stderr.
+- Tests: `timeline-render.test.ts` y `hyperframes.test.ts` (se salta solo sin producer/Chrome). 43/43 verdes en Node 22 con Chrome; 41 + 2 skipped con `VEM_SKIP_HYPERFRAMES=1`. CI: job principal sin Chrome + job opcional `hyperframes`.
+- vitest en serie (`fileParallelism: false`, timeouts 60 s) por timeouts bajo carga. Pendiente: transiciones y posición de clips/capa en el tiempo.

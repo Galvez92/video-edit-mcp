@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { extname } from "node:path";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { extname, join } from "node:path";
+import { compose } from "./compose.js";
+import type { Timeline } from "./timeline.js";
+import { buildTimelineGraph, type SourceInfo } from "./timelineRender.js";
 import { inspect, type OnProgress } from "./edit.js";
 import { ffmpeg, ffmpegWithProgress, probe, type ProbeResult } from "./ffmpeg.js";
 import { buildZip } from "./zip.js";
@@ -34,9 +38,16 @@ export type PresetName = keyof typeof PRESETS;
 export const PRESET_NAMES = Object.keys(PRESETS) as [PresetName, ...PresetName[]];
 
 export interface RenderRequest {
-  input: string;
+  /** Single source file (mutually exclusive with `timeline`). */
+  input?: string;
+  /** Timeline to assemble and encode (mutually exclusive with `input`). */
+  timeline?: Timeline;
   preset: PresetName;
   output: string;
+  /** Alpha video (e.g. a HyperFrames webm/mov) composited over the whole program. Video presets only. */
+  overlay?: string;
+  /** HyperFrames composition (HTML) rendered with alpha and composited over the program. Needs the optional peer. */
+  hyperframes?: string;
   overwrite?: boolean;
   onProgress?: OnProgress;
 }
@@ -45,37 +56,77 @@ export interface RenderResult {
   output: string;
   preset: PresetName;
   durationSec: number;
+  overlay?: string;
 }
 
 function guardOutput(output: string, overwrite?: boolean): void {
   if (!overwrite && existsSync(output)) throw new Error(`output exists: ${output} (pass overwrite: true)`);
 }
 
-/** Encode `input` with one of the fixed presets. */
+function videoEncodeArgs(p: VideoPreset): string[] {
+  return ["-c:v", "libx264", "-preset", "medium", "-b:v", p.videoBitrate, "-pix_fmt", "yuv420p"];
+}
+const audioEncodeArgs = (bitrate: string) => ["-c:a", "aac", "-b:a", bitrate, "-ar", "48000", "-ac", "2"];
+
+/** Encode `input` or assemble a `timeline` with one of the fixed presets, optionally with an alpha overlay layer. */
 export async function render(req: RenderRequest): Promise<RenderResult> {
   const preset: Preset = PRESETS[req.preset];
   if (!preset) throw new Error(`unknown preset: ${req.preset}`);
-  if (!existsSync(req.input)) throw new Error(`input not found: ${req.input}`);
+  if (Boolean(req.input) === Boolean(req.timeline)) throw new Error("pass exactly one of input or timeline");
+  if ((req.overlay || req.hyperframes) && preset.kind !== "video") throw new Error("overlay/hyperframes need a video preset");
+  if (req.overlay && req.hyperframes) throw new Error("pass at most one of overlay or hyperframes");
+  if (req.overlay && !existsSync(req.overlay)) throw new Error(`overlay not found: ${req.overlay}`);
   guardOutput(req.output, req.overwrite);
-  const info = await inspect(req.input);
-  const args = ["-y", "-i", req.input];
-  if (preset.kind === "audio") {
-    if (!info.hasAudio) throw new Error("audio-only preset needs an input with an audio stream");
-    args.push("-vn", "-c:a", "aac", "-b:a", preset.audioBitrate, "-ar", String(preset.sampleRate), "-ac", "2");
-  } else {
-    if (!info.hasVideo) throw new Error(`preset ${req.preset} needs an input with a video stream`);
-    const { width: w, height: h, fps } = preset;
-    const vf = `scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps}`;
-    args.push("-vf", vf, "-c:v", "libx264", "-preset", "medium", "-b:v", preset.videoBitrate, "-pix_fmt", "yuv420p");
-    if (info.hasAudio) args.push("-c:a", "aac", "-b:a", preset.audioBitrate, "-ar", "48000", "-ac", "2");
-    else args.push("-an");
+
+  // Single input → same as a one-clip timeline over the whole file.
+  let timeline = req.timeline;
+  if (req.input) {
+    if (!existsSync(req.input)) throw new Error(`input not found: ${req.input}`);
+    const info = await inspect(req.input);
+    if (preset.kind === "audio" && !info.hasAudio) throw new Error("audio-only preset needs an input with an audio stream");
+    if (preset.kind === "video" && !info.hasVideo) throw new Error(`preset ${req.preset} needs an input with a video stream`);
+    if (!(info.durationSec > 0)) throw new Error(`cannot read duration of ${req.input}`);
+    timeline = {
+      width: info.width ?? 0, height: info.height ?? 0, fps: info.fps ?? 30,
+      tracks: [{ id: "main", kind: info.hasVideo ? "video" : "audio", clips: [{ id: "main", src: req.input, in: 0, out: info.durationSec }] }],
+    };
+    if (!(timeline.width > 0)) Object.assign(timeline, { width: 1, height: 1 });
   }
-  args.push("-movflags", "+faststart", req.output);
-  const total = info.durationSec;
-  const r = await ffmpegWithProgress(args, req.onProgress && ((u) => req.onProgress?.(u, total)), 600_000);
-  if (r.code !== 0) throw new Error(`ffmpeg render failed: ${r.stderr.trim().split("\n").slice(-3).join(" | ")}`);
+  const tl = timeline!;
+  const sources: SourceInfo = {};
+  for (const t of tl.tracks) {
+    if (t.kind === "caption") continue;
+    for (const c of t.clips) {
+      if (sources[c.src]) continue;
+      if (!existsSync(c.src)) throw new Error(`clip ${c.id}: source not found: ${c.src}`);
+      const i = await inspect(c.src);
+      sources[c.src] = { hasVideo: i.hasVideo, hasAudio: i.hasAudio };
+    }
+  }
+
+  let overlay = req.overlay;
+  let tmp: string | undefined;
+  try {
+    if (req.hyperframes) {
+      tmp = mkdtempSync(join(tmpdir(), "vem-hf-"));
+      overlay = join(tmp, "layer.webm");
+      await compose({ composition: req.hyperframes, output: overlay, format: "webm", fps: (preset as VideoPreset).fps });
+    }
+    const target = preset.kind === "video" ? { kind: "video" as const, width: preset.width, height: preset.height, fps: preset.fps } : { kind: "audio" as const };
+    const g = buildTimelineGraph(tl, target, sources, { overlay });
+    const args = ["-y", ...g.inputArgs, "-filter_complex", g.filterComplex];
+    for (const m of g.maps) args.push("-map", m);
+    if (preset.kind === "video") args.push(...videoEncodeArgs(preset), ...audioEncodeArgs(preset.audioBitrate));
+    else args.push(...audioEncodeArgs(preset.audioBitrate));
+    args.push("-t", String(g.durationSec), "-movflags", "+faststart", req.output);
+    const total = g.durationSec;
+    const r = await ffmpegWithProgress(args, req.onProgress && ((u) => req.onProgress?.(u, total)), 600_000);
+    if (r.code !== 0) throw new Error(`ffmpeg render failed: ${r.stderr.trim().split("\n").slice(-3).join(" | ")}`);
+  } finally {
+    if (tmp) rmSync(tmp, { recursive: true, force: true });
+  }
   const out = await probe(req.output);
-  return { output: req.output, preset: req.preset, durationSec: out.durationSec ?? 0 };
+  return { output: req.output, preset: req.preset, durationSec: out.durationSec ?? 0, ...(req.overlay || req.hyperframes ? { overlay: req.hyperframes ? "hyperframes" : req.overlay } : {}) };
 }
 
 export interface Loudness {

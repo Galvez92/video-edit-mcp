@@ -7,6 +7,20 @@ import { health, probe } from "./core/ffmpeg.js";
 import { compose } from "./core/compose.js";
 import { exportPackage, PRESET_NAMES, render } from "./core/render.js";
 
+const clipSchema = z.object({
+  id: z.string().min(1),
+  src: z.string().min(1),
+  in: z.number().min(0),
+  out: z.number().positive(),
+  gainDb: z.number().optional(),
+});
+const timelineSchema = z.object({
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  fps: z.number().positive(),
+  tracks: z.array(z.object({ id: z.string().min(1), kind: z.enum(["video", "audio", "caption"]), clips: z.array(clipSchema) })).min(1),
+});
+
 export const SERVER_NAME = "video-edit-mcp";
 export const SERVER_VERSION = "0.1.0";
 
@@ -124,9 +138,12 @@ export function createServer(): McpServer {
     "render",
     {
       description:
-        "Encode a file with a fixed delivery preset: web-1080p (16:9), vertical-9x16, square (H.264+AAC, fit-and-pad) or audio-only (AAC .m4a).",
+        "Encode a file or assemble a timeline with a fixed delivery preset: web-1080p (16:9), vertical-9x16, square (H.264+AAC, fit-and-pad) or audio-only (AAC .m4a). Optional alpha overlay or HyperFrames layer on top.",
       inputSchema: {
-        input: z.string().min(1).describe("Source media path"),
+        input: z.string().min(1).optional().describe("Source media path (or pass timeline)"),
+        timeline: timelineSchema.optional().describe("Timeline: first video track is the program (clips trimmed by in/out and concatenated); audio tracks are mixed under it"),
+        overlay: z.string().min(1).optional().describe("Alpha video (webm VP9 / mov ProRes 4444) composited over the program"),
+        hyperframes: z.string().min(1).optional().describe("HyperFrames composition HTML rendered with alpha and composited over the program (needs the optional peer)"),
         preset: z.enum(PRESET_NAMES).describe("Encode preset"),
         output: z.string().min(1).describe("Output file path (.mp4 for video presets, .m4a for audio-only)"),
         overwrite: z.boolean().optional().describe("Replace the output file if it already exists (default false)"),
@@ -169,11 +186,11 @@ export function createServer(): McpServer {
       description:
         "Render a HyperFrames composition (HTML) to video. Needs the optional peer @hyperframes/producer and headless Chrome; returns an 'unavailable' error otherwise.",
       inputSchema: {
-        composition: z.string().min(1).describe("Path to the HyperFrames composition HTML"),
+        composition: z.string().min(1).describe("HyperFrames composition HTML file, or a project directory with index.html"),
         output: z.string().min(1).describe("Output video path"),
-        width: z.number().int().positive().optional(),
-        height: z.number().int().positive().optional(),
-        fps: z.number().positive().optional(),
+        fps: z.number().int().positive().optional().describe("Frame rate (default 30); canvas size comes from the composition"),
+        format: z.enum(["mp4", "webm", "mov"]).optional().describe("mp4 opaque, webm/mov with alpha (default from extension)"),
+        quality: z.enum(["draft", "standard", "high"]).optional(),
       },
     },
     async (args) => {
