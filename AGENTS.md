@@ -55,12 +55,12 @@ node dist/index.js --http --port 3333   # Streamable HTTP on /mcp
 - **Tests required** for every new tool (happy path + error path) using synthetic or verified-license media only.
 - **No releases, npm publish, or MCP registry submission** without explicit owner approval.
 
-## Base44 sandbox (dev preview)
-- `docker-compose.base44.yml` runs the MCP server from the cloned source: `npm ci` at container start plus `tsx watch` (live reload), published on host port 3000 → container 3333. It is sandbox-only tooling; it does not change app behaviour.
-- Nothing else to configure: no secrets, no external services, no database. `.base44/Dockerfile` (sandbox-only, no source baked in) adds ffmpeg/ffprobe on top of `node:22`, so `health` reports both as available.
+## Dev sandbox (container preview)
+- `docker-compose.sandbox.yml` runs the MCP server from the cloned source: `npm ci` at container start plus `tsx watch` (live reload), published on host port 3000 → container 3333. It is sandbox-only tooling; it does not change app behaviour.
+- Nothing else to configure: no secrets, no external services, no database. `.sandbox/Dockerfile` (sandbox-only, no source baked in) adds ffmpeg/ffprobe on top of `node:22`, so `health` reports both as available.
 - `GET /` serves a small index page; MCP itself is `POST http://localhost:3000/mcp` (also what the compose healthcheck probes).
-- Run every check inside the container: `docker compose -f docker-compose.base44.yml exec -T mcp npm run lint|typecheck|test|build`. Tests generate their own synthetic fixtures; `npm run fixtures` writes them to `tests/fixtures` (git-ignored).
-- Caption burn-in (libass) needs `fonts-dejavu-core`; `.base44/Dockerfile` installs it alongside ffmpeg.
+- Run every check inside the container: `docker compose -f docker-compose.sandbox.yml exec -T mcp npm run lint|typecheck|test|build`. Tests generate their own synthetic fixtures; `npm run fixtures` writes them to `tests/fixtures` (git-ignored).
+- Caption burn-in (libass) needs `fonts-dejavu-core`; `.sandbox/Dockerfile` installs it alongside ffmpeg.
 - `@hyperframes/producer` is intentionally **not** installed in the sandbox (optional peer that pulls puppeteer + Chrome): its tests skip and `captions.render` reports the HyperFrames engine as unavailable, while the `ffmpeg` engine path runs for real.
 
 ## Memory (update every time)
@@ -68,7 +68,7 @@ node dist/index.js --http --port 3333   # Streamable HTTP on /mcp
 - `docs/memoria/ramas/<branch>.md` — one ficha per branch. Update its **Status** (pending → in-progress → review → merged) and notes. Do not create other copies.
 
 ## Dev environment (sandbox)
-- Compose setup, ports and healthcheck: see "Base44 sandbox (dev preview)" above.
+- Compose setup, ports and healthcheck: see "Dev sandbox (container preview)" above.
 - The sandbox host has no Node/ffmpeg of its own — run every check in that container:
   Re-run `up -d` only when the image or `package-lock.json` changes.
 - No secrets are required; everything runs offline/local.

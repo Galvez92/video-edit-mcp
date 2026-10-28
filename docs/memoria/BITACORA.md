@@ -98,3 +98,9 @@ Formato: `## YYYY-MM-DD — rama — resumen` + detalles (qué, tests, pendiente
 - Lógica pura y testeada: `buildCropTrajectory` (selección de eje, clampeo, pares, expresión `crop` de ffmpeg piecewise-linear con escapes). Núcleo: `src/core/face-track.ts` (detector lazy + trayectoria), `src/core/reframe.ts` (aspectos, `cropWindow`/`cropOutput`/`focusOffset` + runner ffmpeg con `-c:a copy` y libx264/yuv420p), `src/tools/reframe.ts` (tool MCP). Registrada en `src/server.ts`.
 - Tests: `tests/face-track.test.ts` (puros) y `tests/reframe.test.ts` (ffmpeg real con fixtures): 320x240→9:16 = 136x240 (pares, ratio ±1px), 1:1/16:9/4:5, escalado a 1080, `pad` y `blur-pad`, y caminos de error (falta input, sin video, salida existente, aspecto inválido, `follow` fuera de crop, `follow` unavailable). 52 tests en verde; lint, typecheck y build OK.
 - Pendiente: el *runtime* de seguimiento (detector → frames → crop móvil) no se ejercita en sandbox/CI (sin detector); su camino unavailable sí está testeado, igual que el peer HyperFrames.
+
+## 2026-10-28 — chore/remove-vendor-sandbox-config — config de sandbox genérica
+- Config de sandbox del proveedor renombrada a `.sandbox/` y `docker-compose.sandbox.yml`; labels del compose pasan a `sandbox.*`. Se conserva porque es el entorno de desarrollo en contenedor (Node 22 + ffmpeg, live reload, puerto 3000).
+- AGENTS.md (sección "Dev sandbox") y ficha feat-core-ffmpeg reescritas sin nombre de proveedor. Sin menciones al proveedor en archivos versionados.
+- Ramas redundantes archivadas como tags `archive/core-ffmpeg-wrapper`, `archive/docs/hyperframes-engine`, `archive/<rama de setup del sandbox>` y borradas del remoto (OK del owner).
+- Ojo: la herramienta de build externa puede depender de la ruta antigua; revisar antes de fusionar.
