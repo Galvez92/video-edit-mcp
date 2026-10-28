@@ -5,6 +5,7 @@ import { z } from "zod";
 import { concat, cut, trim, type OnProgress } from "./core/edit.js";
 import { health, probe } from "./core/ffmpeg.js";
 import { compose } from "./core/compose.js";
+import { TRANSITION_TYPES } from "./core/timeline.js";
 import { exportPackage, PRESET_NAMES, render } from "./core/render.js";
 
 const clipSchema = z.object({
@@ -13,6 +14,11 @@ const clipSchema = z.object({
   in: z.number().min(0),
   out: z.number().positive(),
   gainDb: z.number().optional(),
+  startSec: z.number().min(0).optional().describe("Position on the timeline in seconds (default: right after the previous clip; gaps are black + silence)"),
+  transition: z
+    .object({ type: z.enum(TRANSITION_TYPES), durationSec: z.number().positive() })
+    .optional()
+    .describe("Transition from the previous clip into this one (clips overlap by durationSec)"),
 });
 const timelineSchema = z.object({
   width: z.number().int().positive(),
@@ -141,9 +147,11 @@ export function createServer(): McpServer {
         "Encode a file or assemble a timeline with a fixed delivery preset: web-1080p (16:9), vertical-9x16, square (H.264+AAC, fit-and-pad) or audio-only (AAC .m4a). Optional alpha overlay or HyperFrames layer on top.",
       inputSchema: {
         input: z.string().min(1).optional().describe("Source media path (or pass timeline)"),
-        timeline: timelineSchema.optional().describe("Timeline: first video track is the program (clips trimmed by in/out and concatenated); audio tracks are mixed under it"),
+        timeline: timelineSchema.optional().describe("Timeline: first video track is the program (clips trimmed by in/out, placed by startSec or back-to-back, joined by transitions); audio tracks are mixed under it"),
         overlay: z.string().min(1).optional().describe("Alpha video (webm VP9 / mov ProRes 4444) composited over the program"),
         hyperframes: z.string().min(1).optional().describe("HyperFrames composition HTML rendered with alpha and composited over the program (needs the optional peer)"),
+        layerStartSec: z.number().min(0).optional().describe("Program time where the overlay/HyperFrames layer starts (default 0)"),
+        layerDurationSec: z.number().positive().optional().describe("How long the layer is shown (default: until the layer ends)"),
         preset: z.enum(PRESET_NAMES).describe("Encode preset"),
         output: z.string().min(1).describe("Output file path (.mp4 for video presets, .m4a for audio-only)"),
         overwrite: z.boolean().optional().describe("Replace the output file if it already exists (default false)"),

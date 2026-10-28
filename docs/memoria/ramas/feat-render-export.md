@@ -22,7 +22,12 @@ Final render with presets and a portable delivery package. **HyperFrames compose
 - Composition notes: mark the root with `data-no-timeline` when it has no GSAP timeline (otherwise the producer waits 45 s for `window.__timelines`).
 - CI: main job sets `PUPPETEER_SKIP_DOWNLOAD=true` (HyperFrames tests skip); optional `hyperframes` job (`continue-on-error`) downloads Chrome through puppeteer and runs only `tests/hyperframes.test.ts`.
 - vitest runs files sequentially (`fileParallelism: false`, 60 s timeouts): ffmpeg + Chrome renders time out when they compete on a busy machine.
-- Pending: timeline transitions/crossfades and per-clip position on the program (clips are back-to-back); HyperFrames layer is full-length from t=0 (no offset).
+- Timeline placement (`placeClips` in `src/core/timeline.ts`): clip `startSec` places it absolutely; otherwise it follows the previous clip. Gaps on the program → `color=black` + `anullsrc` segments. Overlaps on a video/audio track without a transition → validation error ("overlaps clip X … join them with a transition").
+- Transitions: clip `transition {type, durationSec}` joins it to the previous clip (overlap = durationSec). Types `crossfade|dissolve|fadeblack|fadewhite|wipeleft|wiperight|slideleft|slideright` → ffmpeg `xfade` (video) + `acrossfade` (program audio); audio-track clips get `afade` in/out. Validated: not on the first clip, 0 < d ≤ both neighbouring clip lengths, startSec (if set) must equal the joined position.
+- Audio tracks: each clip trimmed, `adelay` to its start, mixed with `amix` (gaps = silence).
+- Layer timing: `render.layerStartSec` (setpts offset) and `layerDurationSec` (`overlay enable='between(t,…)'`) for `overlay` and `hyperframes`.
+- Tests: graph units (xfade offsets, gap colour sources, overlap/too-long/first-clip errors, adelay + layer offset) + real renders: 5 clips with crossfade/fadeblack/wipeleft/slideright → 4.1 s (sum − overlaps); startSec gap → black + silent at 1.5 s, pattern at 0.5/2.5 s; audio clip startSec 1 → silence before; overlap rejected; alpha red layer at 1–1.5 s pixel-checked at 0.5/1.2/1.8 s; HyperFrames layer with layerStartSec 1 (self-skips without Chrome).
+- Pending: transitions on the audio track are fades over an overlap the user sets by startSec (no auto overlap); per-clip HyperFrames layers (one layer per render for now).
 
 ## Dependencies
 feat/core-ffmpeg; integrates captions, reframe, audio-mix. Optional peer `@hyperframes/producer` ^0.8.209 (Apache-2.0; puppeteer + headless Chrome; Node ≥22).

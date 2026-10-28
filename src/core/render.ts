@@ -48,6 +48,10 @@ export interface RenderRequest {
   overlay?: string;
   /** HyperFrames composition (HTML) rendered with alpha and composited over the program. Needs the optional peer. */
   hyperframes?: string;
+  /** Program time (s) where the overlay/HyperFrames layer starts. Default 0. */
+  layerStartSec?: number;
+  /** How long the layer is shown (s). Default: until the layer ends. */
+  layerDurationSec?: number;
   overwrite?: boolean;
   onProgress?: OnProgress;
 }
@@ -113,7 +117,7 @@ export async function render(req: RenderRequest): Promise<RenderResult> {
       await compose({ composition: req.hyperframes, output: overlay, format: "webm", fps: (preset as VideoPreset).fps });
     }
     const target = preset.kind === "video" ? { kind: "video" as const, width: preset.width, height: preset.height, fps: preset.fps } : { kind: "audio" as const };
-    const g = buildTimelineGraph(tl, target, sources, { overlay });
+    const g = buildTimelineGraph(tl, target, sources, { overlay, layerStartSec: req.layerStartSec, layerDurationSec: req.layerDurationSec });
     const args = ["-y", ...g.inputArgs, "-filter_complex", g.filterComplex];
     for (const m of g.maps) args.push("-map", m);
     if (preset.kind === "video") args.push(...videoEncodeArgs(preset), ...audioEncodeArgs(preset.audioBitrate));

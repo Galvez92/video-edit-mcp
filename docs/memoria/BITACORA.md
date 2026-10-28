@@ -39,3 +39,9 @@ Formato: `## YYYY-MM-DD — rama — resumen` + detalles (qué, tests, pendiente
 - `compose` ahora renderiza de verdad con `@hyperframes/producer` 0.8.210 (`createRenderJob`/`executeRenderJob`, formatos mp4/webm/mov), devDependency local + peer opcional; logs solo warn/error a stderr.
 - Tests: `timeline-render.test.ts` y `hyperframes.test.ts` (se salta solo sin producer/Chrome). 43/43 verdes en Node 22 con Chrome; 41 + 2 skipped con `VEM_SKIP_HYPERFRAMES=1`. CI: job principal sin Chrome + job opcional `hyperframes`.
 - vitest en serie (`fileParallelism: false`, timeouts 60 s) por timeouts bajo carga. Pendiente: transiciones y posición de clips/capa en el tiempo.
+
+## 2026-10-28 · feat/render-export · transiciones, posición en el tiempo y capa con offset
+- `Clip.startSec` y `Clip.transition {type, durationSec}`; `placeClips()` resuelve posiciones, rellena huecos (negro + silencio) y rechaza solapes sin transición.
+- Transiciones `xfade` + `acrossfade` (crossfade, dissolve, fadeblack, fadewhite, wipe/slide izq/der), validadas contra la duración de los clips vecinos.
+- Pistas de audio con `adelay` por clip + `amix`. `render.layerStartSec` / `layerDurationSec` para `overlay` y `hyperframes`.
+- Tests: 53/53 verdes en Node 22 (incluye 3 HyperFrames reales con Chrome). Pendiente: varias capas HyperFrames por render.
