@@ -1,15 +1,13 @@
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { connectClient, hasFfmpeg } from "./helpers.js";
+import { connectClient, hasFfmpeg, makeFixtures, makeTempDir } from "./helpers.js";
 
 describe.skipIf(!hasFfmpeg)("probe (requires ffmpeg)", () => {
   let dir = "";
   beforeAll(() => {
-    dir = mkdtempSync(join(tmpdir(), "vem-"));
-    execFileSync("bash", ["scripts/make-fixtures.sh", dir]);
+    dir = makeTempDir();
+    makeFixtures(dir);
   });
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
 

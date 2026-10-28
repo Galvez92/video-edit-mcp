@@ -5,14 +5,7 @@ describe("server", () => {
   it("lists exactly the implemented tools", async () => {
     const client = await connectClient();
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual([
-      "audio.loudnorm",
-      "audio.measure",
-      "audio.mix",
-      "health",
-      "probe",
-      "transcribe",
-    ]);
+    expect(tools.map((t) => t.name).sort()).toEqual(["audio.loudnorm", "audio.measure", "audio.mix", "compose", "concat", "cut", "export.package", "health", "probe", "render", "transcribe", "trim"]);
     await client.close();
   });
 
