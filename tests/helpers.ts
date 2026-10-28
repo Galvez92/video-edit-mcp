@@ -51,3 +51,39 @@ export async function failed(call: Promise<ToolCall<unknown>>): Promise<boolean>
     return true;
   }
 }
+
+/** Decode one RGB pixel of `file` at time `t` (seconds). */
+export function pixelAt(file: string, t: number, x: number, y: number): [number, number, number] {
+  const buf = execFileSync("ffmpeg", ["-v", "error", "-ss", String(t), "-i", file, "-frames:v", "1", "-vf", `crop=2:2:${x}:${y}`, "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]);
+  return [buf[0]!, buf[1]!, buf[2]!];
+}
+
+/** HyperFrames producer + a headless Chrome it can launch. Set VEM_SKIP_HYPERFRAMES=1 to force-skip. */
+export async function hyperframesReady(): Promise<boolean> {
+  if (process.env.VEM_SKIP_HYPERFRAMES === "1" || !hasFfmpeg) return false;
+  try {
+    await import("@hyperframes/producer");
+    const puppeteer = (await import("puppeteer")).default;
+    const { existsSync } = await import("node:fs");
+    return existsSync(await puppeteer.executablePath());
+  } catch {
+    return false;
+  }
+}
+
+/** Minimal HyperFrames composition: the fixture clip full-frame with a red title band (y 90–138). */
+export function titleComposition(clip: string | undefined, seconds = 2): string {
+  const video = clip
+    ? `<video id="bg" class="clip" src="${clip}" muted playsinline data-start="0" data-duration="${seconds}" data-track-index="0"></video>`
+    : "";
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+html,body{margin:0;width:320px;height:240px;overflow:hidden}
+#bg{position:absolute;top:0;left:0;width:320px;height:240px}
+#title{position:absolute;top:90px;left:0;width:320px;height:48px;line-height:48px;text-align:center;font:bold 36px sans-serif;color:#fff;background:#c00}
+</style></head><body>
+<div id="root" data-composition-id="main" data-no-timeline data-start="0" data-duration="${seconds}" data-width="320" data-height="240">
+  ${video}
+  <div id="title" class="clip" data-start="0" data-duration="${seconds}" data-track-index="1">TITLE</div>
+</div></body></html>
+`;
+}

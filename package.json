@@ -29,6 +29,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@hyperframes/producer": "^0.8.210",
     "@types/node": "^22.19.0",
     "eslint": "^10.13.0",
     "tsx": "^4.23.15",
