@@ -7,7 +7,7 @@ An open-source [Model Context Protocol](https://modelcontextprotocol.io) server 
 > Status: early. `main` ships `health` and `probe`; editing tools are on the roadmap.
 
 ## Quick start
-Requirements: Node 20+, ffmpeg + ffprobe on `PATH`.
+Requirements: Node 22+, ffmpeg + ffprobe on `PATH`.
 
 ```bash
 npm ci && npm run build
@@ -28,8 +28,8 @@ MCP client config (stdio):
 
 ## Roadmap
 1. Cut / trim / concat / assemble timeline
-2. Local transcription (Whisper) · animated captions (SRT/ASS + burn-in) · reframe 9:16/1:1/16:9 · audio mix, ducking, loudnorm −16 LUFS
-3. Render presets + ZIP export (video + SRT + spec.json)
+2. Local transcription (Whisper) · animated captions rendered with HyperFrames (SRT/ASS export + ffmpeg fallback) · reframe 9:16/1:1/16:9 · audio mix, ducking, loudnorm −16 LUFS
+3. HyperFrames composition (overlays, titles) + ffmpeg render presets + ZIP export (video + SRT + spec.json)
 4. EDL / OTIO import
 
 ## Development
@@ -38,3 +38,7 @@ npm test        # ffmpeg tests skip if ffmpeg is missing
 npm run lint && npm run typecheck
 ```
 See [AGENTS.md](AGENTS.md) for conventions.
+
+## Third-party
+- [HyperFrames](https://github.com/heygen-com/hyperframes) (Apache-2.0) — optional peer dependency used as the composition/captions engine.
+- ffmpeg — invoked as an external binary.

@@ -2,11 +2,11 @@
   "name": "video-edit-mcp",
   "version": "0.1.0",
   "private": true,
-  "description": "MCP server that lets any assistant edit video with ffmpeg.",
+  "description": "MCP server that lets any assistant edit video: ffmpeg for cut/mix/encode, HyperFrames for captions, overlays and composition.",
   "license": "MIT",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "bin": {
     "video-edit-mcp": "dist/index.js"
@@ -29,11 +29,19 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "^20.19.43",
+    "@types/node": "^22.19.0",
     "eslint": "^10.13.0",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.1",
     "vitest": "^5.0.5"
+  },
+  "peerDependencies": {
+    "@hyperframes/producer": "^0.8.209"
+  },
+  "peerDependenciesMeta": {
+    "@hyperframes/producer": {
+      "optional": true
+    }
   }
 }
