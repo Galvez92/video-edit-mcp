@@ -1,12 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { health, probe } from "./core/ffmpeg.js";
+import { registerCaptionTools } from "./tools/captions.js";
+import { fail, json } from "./tools/result.js";
 
 export const SERVER_NAME = "video-edit-mcp";
 export const SERVER_VERSION = "0.1.0";
-
-const json = (data: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] });
-const fail = (msg: string) => ({ isError: true, content: [{ type: "text" as const, text: msg }] });
 
 /** Build the MCP server and register every implemented tool. */
 export function createServer(): McpServer {
@@ -32,6 +31,8 @@ export function createServer(): McpServer {
       }
     },
   );
+
+  registerCaptionTools(server);
 
   return server;
 }

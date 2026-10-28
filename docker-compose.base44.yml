@@ -1,0 +1,47 @@
+# Base44 sandbox stack for video-edit-mcp — development only, never a production deploy.
+#
+# This repository is an MCP server, not a web app: the entry point on host port 3000
+# is its Streamable HTTP transport (POST /mcp), run through the watch-mode dev server
+# so source edits reload it. GET / answers 404 by design.
+#
+# The application code is bind-mounted from the sandbox; the image only supplies the
+# Node runtime, ffmpeg/ffprobe and the fonts libass needs for caption burn-in.
+services:
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.base44
+    working_dir: /app
+    command:
+      - sh
+      - -ec
+      - npm ci && exec ./node_modules/.bin/tsx watch src/index.ts --http --port 3000 --host 0.0.0.0
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - mcp-node-modules:/app/node_modules
+    healthcheck:
+      # Both critical components: the ffmpeg binaries the tools spawn and a live
+      # MCP initialize round-trip on the HTTP transport.
+      test:
+        - CMD-SHELL
+        - >-
+          ffmpeg -version >/dev/null 2>&1 &&
+          curl -fsS -o /dev/null -H 'content-type: application/json'
+          -H 'accept: application/json, text/event-stream'
+          -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"healthcheck","version":"0"}}}'
+          http://127.0.0.1:3000/mcp
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    restart: on-failure
+    labels:
+      base44.project: video-edit-mcp
+      base44.kind: api
+      base44.port: "3000"
+      base44.docs: /mcp
+
+volumes:
+  mcp-node-modules:

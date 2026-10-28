@@ -55,6 +55,14 @@ node dist/index.js --http --port 3333   # Streamable HTTP on /mcp
 - **Tests required** for every new tool (happy path + error path) using synthetic or verified-license media only.
 - **No releases, npm publish, or MCP registry submission** without explicit owner approval.
 
+## Sandbox environment (Base44 dev stack)
+- `docker-compose.base44.yml` + `Dockerfile.base44` run the server from the bind-mounted source in watch mode (`tsx watch src/index.ts --http --port 3000 --host 0.0.0.0`). The image adds only ffmpeg/ffprobe, `fonts-dejavu-core` (needed by libass for caption burn-in) and curl; dependencies are installed on container start and kept in the `mcp-node-modules` volume.
+- Host port 3000 is the **Streamable HTTP transport** (`POST /mcp`): this repo is an MCP server, not a web app, so `GET /` answers 404 by design and `/mcp` is the only public route.
+- The compose healthcheck probes both critical parts: the ffmpeg binaries and a live `initialize` round-trip against `/mcp`.
+- No `BASE44_PREVIEW_MODE` overrides are needed: the transport binds `0.0.0.0` and validates neither `Host` nor `Origin`.
+- Run every check inside the container (the sandbox host has no Node): `docker compose -f docker-compose.base44.yml exec -T mcp npm run lint|typecheck|test|build`.
+- `@hyperframes/producer` is intentionally **not** installed here (optional peer that pulls puppeteer + Chrome): its tests skip and `captions.render` reports the HyperFrames engine as unavailable, while the `ffmpeg` engine path runs for real.
+
 ## Memory (update every time)
 - `docs/memoria/BITACORA.md` — single append-only log. Add a dated entry (YYYY-MM-DD) per merged change: what, branch, tests.
 - `docs/memoria/ramas/<branch>.md` — one ficha per branch. Update its **Status** (pending → in-progress → review → merged) and notes. Do not create other copies.

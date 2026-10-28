@@ -13,3 +13,16 @@ export async function connectClient(): Promise<Client> {
   await client.connect(clientT);
   return client;
 }
+
+/** Shape of a tool call result as returned by the SDK client. */
+export interface ToolResult {
+  isError?: boolean;
+  content: { type: string; text: string }[];
+}
+
+/** The text payload of a tool result. */
+export const toolText = (result: unknown): string => (result as ToolResult).content[0].text;
+
+/** The parsed JSON payload of a tool result. */
+export const toolJson = (result: unknown): Record<string, unknown> =>
+  JSON.parse(toolText(result)) as Record<string, unknown>;
