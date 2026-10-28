@@ -6,6 +6,9 @@ import { concat, cut, trim, type OnProgress } from "./core/edit.js";
 import { health, probe } from "./core/ffmpeg.js";
 import { loudnorm, measure, mix } from "./core/audiomix.js";
 import { transcribe, whisperStatus } from "./core/whisper.js";
+import { registerCaptionTools } from "./tools/captions.js";
+import { registerReframeTool } from "./tools/reframe.js";
+import { fail, json } from "./tools/result.js";
 import { compose } from "./core/compose.js";
 import { AUDIO_CURVES, TRANSITION_TYPES } from "./core/timeline.js";
 import { LAYER_MOTIONS } from "./core/timelineRender.js";
@@ -42,8 +45,6 @@ const timelineSchema = z.object({
 export const SERVER_NAME = "video-edit-mcp";
 export const SERVER_VERSION = "0.1.0";
 
-const json = (data: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] });
-const fail = (msg: string) => ({ isError: true, content: [{ type: "text" as const, text: msg }] });
 const message = (err: unknown) => (err as Error).message;
 
 type ToolExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
@@ -338,6 +339,8 @@ export function createServer(): McpServer {
       }
     },
   );
+  registerCaptionTools(server);
+  registerReframeTool(server);
 
   return server;
 }

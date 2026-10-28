@@ -75,3 +75,26 @@ Formato: `## YYYY-MM-DD — rama — resumen` + detalles (qué, tests, pendiente
 - Nuevo `src/core/audiomix.ts` y 3 tools: `audio.measure` (loudnorm → LUFS/TP/LRA), `audio.loudnorm` (two-pass, target **-14 LUFS** por defecto / -1.5 dBTP) y `audio.mix` (voz + música con ducking por `sidechaincompress`, `amix` sin renormalizar, `afade`, video copiado y audio a AAC 192k, `-shortest`). `duck.threshold` en dB → amplitud lineal para ffmpeg; fuentes forzadas a mono.
 - Tests `tests/audiomix.test.ts` (6: measure, loudnorm≈-14, mix 1 stream/duración=vídeo, y 3 error paths) con fixtures generados (testsrc/sine + clip sin audio). `tests/server.test.ts` actualizado a 6 tools.
 - Verificación: `lint`/`typecheck`/`build` en verde; 19 tests OK + 1 saltado (transcribe real, por revisar). Audio tools verificados además por HTTP con audio real (loudnorm → -13.95 LUFS; mix 2.0 s / 1 stream). Rama **no** fusionada a main.
+
+## 2026-10-28 — feat/captions — subtítulos SRT/ASS y captions animados + burn-in
+
+> Rama abierta, **sin fusionar a main** (queda en review).
+
+- `captions.generate`: segmentos de transcripción (inline o JSON) o un SRT → SRT, ASS o composición HyperFrames (HTML). Estilos `plain`, `karaoke` (resaltado por palabra), `pop` (escala de entrada) y `box` (placa de fondo); límites `maxCharsPerLine`/`maxLines` respetados.
+- `captions.render`: burn-in sobre el video conservando el audio de origen. Motor por defecto HyperFrames (capa alfa ProRes 4444 + overlay ffmpeg); motor `ffmpeg` con ASS/libass como respaldo, sin dependencia extra.
+- Núcleo: `src/core/subtitles.ts` (modelo de cues + palabras, SRT, ASS v4.00+, karaoke `\k`, pop `\t`, box `BorderStyle 3`), `src/core/captions.ts` (chunking y composición HyperFrames con un elemento temporizado por chunk, animaciones CSS word-pop/karaoke relativas al `data-start` del elemento), `src/core/hyperframes.ts` (import dinámico del peer opcional `@hyperframes/producer`; ausente → `isError` "unavailable"), `src/core/caption-render.ts` (selección de motor, guarda de sobrescritura, mux/encode con `-c:a copy`).
+- Fixture `tests/fixtures/sample.srt` (texto sintético) como entrada mientras `feat/transcribe` no está en la rama.
+- Tests: `subtitles`, `captions` (chunking + composición), `captions-tool` (MCP, caminos de error) y `captions-render` (ffmpeg real, se salta sin ffmpeg); `server.test.ts` actualizado a las cuatro tools. Total 38 tests en verde, más lint, typecheck y build.
+- Verificación end-to-end por el transporte HTTP: SRT → SRT idéntico, ASS con `[Events]`, composición con 3 chunks temporizados; render con motor `ffmpeg` sobre clip sintético → h264 + aac, duración 2.00 s, y el texto realmente dibujado (clip negro: `YMAX` 16 → 238).
+- Entorno del sandbox (`docker-compose.base44.yml`, `Dockerfile.base44`, `.base44/environment.json`): ffmpeg + `tsx watch` desde el código montado, transporte HTTP en el puerto 3000.
+- Pendiente: el camino de render HyperFrames no se pudo ejecutar en el sandbox (peer opcional con Chrome no instalado); su test se salta.
+
+## 2026-10-28 — feat/captions — tool MCP reframe (recorte, pad y seguimiento de sujeto)
+
+> Implementada en la rama `feat/captions` (ficha `feat/reframe`), **sin fusionar a main** (queda en review).
+
+- `reframe`: cambia el aspecto a `9:16`, `1:1`, `16:9` o `4:5`. Modos `crop` (recorte centrado, por defecto), `pad` (color sólido) y `blur-pad` (fondo borroso). En `crop`, `focusX`/`focusY` (0..1, defecto 0.5) sesgan el recorte y `follow: true` sigue al sujeto en el tiempo.
+- Detección de rostro: integración opcional y de **carga lazy** (`REFRAME_FACE_MODULE` → módulo que exporta un `FaceDetector` `{detect(input,opts)=>Promise<{t,cx,cy}[]>}`). Sin detector configurado, `follow` responde `isError` "unavailable" y el recorte centrado sigue funcionando. Sin nuevas dependencias en runtime (offline).
+- Lógica pura y testeada: `buildCropTrajectory` (selección de eje, clampeo, pares, expresión `crop` de ffmpeg piecewise-linear con escapes). Núcleo: `src/core/face-track.ts` (detector lazy + trayectoria), `src/core/reframe.ts` (aspectos, `cropWindow`/`cropOutput`/`focusOffset` + runner ffmpeg con `-c:a copy` y libx264/yuv420p), `src/tools/reframe.ts` (tool MCP). Registrada en `src/server.ts`.
+- Tests: `tests/face-track.test.ts` (puros) y `tests/reframe.test.ts` (ffmpeg real con fixtures): 320x240→9:16 = 136x240 (pares, ratio ±1px), 1:1/16:9/4:5, escalado a 1080, `pad` y `blur-pad`, y caminos de error (falta input, sin video, salida existente, aspecto inválido, `follow` fuera de crop, `follow` unavailable). 52 tests en verde; lint, typecheck y build OK.
+- Pendiente: el *runtime* de seguimiento (detector → frames → crop móvil) no se ejercita en sandbox/CI (sin detector); su camino unavailable sí está testeado, igual que el peer HyperFrames.
