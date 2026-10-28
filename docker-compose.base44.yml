@@ -1,0 +1,41 @@
+# Base44 sandbox environment for video-edit-mcp.
+# Runs the MCP server from the cloned source (live reload via tsx watch), never from a prebuilt image.
+# Host port 3000 -> container 3333 (Streamable HTTP transport, endpoint /mcp).
+# No secrets: everything is local, ffmpeg/ffprobe come with the runtime image.
+name: video-edit-mcp
+
+services:
+  mcp:
+    build:
+      context: .
+      dockerfile: .base44/Dockerfile
+    working_dir: /app
+    labels:
+      base44.project: "video-edit-mcp"
+      base44.kind: "api"
+      base44.port: "3000"
+    ports:
+      - "3000:3333"
+    volumes:
+      - .:/app
+      - deps:/app/node_modules
+    command:
+      - sh
+      - -ec
+      - npm ci --no-audit --no-fund && exec ./node_modules/.bin/tsx watch src/index.ts --http --port 3333 --host 0.0.0.0
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        # Real MCP handshake on the app's own endpoint. The transport answers with an
+        # event-stream, so the probe stops at the first chunk carrying the server info.
+        - "const b=JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'healthcheck',version:'1.0.0'}}});fetch('http://127.0.0.1:3333/mcp',{method:'POST',headers:{'content-type':'application/json','accept':'application/json, text/event-stream'},body:b}).then(r=>{if(!r.ok){console.error('mcp probe failed: HTTP '+r.status);process.exit(1)}const reader=r.body.getReader();const dec=new TextDecoder();const pump=()=>reader.read().then(({done,value})=>{if(value&&dec.decode(value).includes('serverInfo')){console.log('mcp probe ok');process.exit(0)}if(done){console.error('mcp probe failed: stream ended without a response');process.exit(1)}return pump()});return pump()}).catch(e=>{console.error('mcp probe failed: '+e.message);process.exit(1)})"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+    restart: on-failure
+
+volumes:
+  deps:
