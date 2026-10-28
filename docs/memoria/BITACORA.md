@@ -45,3 +45,8 @@ Formato: `## YYYY-MM-DD — rama — resumen` + detalles (qué, tests, pendiente
 - Transiciones `xfade` + `acrossfade` (crossfade, dissolve, fadeblack, fadewhite, wipe/slide izq/der), validadas contra la duración de los clips vecinos.
 - Pistas de audio con `adelay` por clip + `amix`. `render.layerStartSec` / `layerDurationSec` para `overlay` y `hyperframes`.
 - Tests: 53/53 verdes en Node 22 (incluye 3 HyperFrames reales con Chrome). Pendiente: varias capas HyperFrames por render.
+
+## 2026-10-28 · feat/render-export · varias capas por render y crossfade en pistas de audio
+- `render.layers[]` (`overlay` | `hyperframes`, `startSec`, `durationSec`, `zIndex`, `x`, `y`, `scale`) compuestas en orden de zIndex; `overlay`/`hyperframes`/`layerStartSec`/`layerDurationSec` siguen funcionando (se mapean a la primera capa).
+- Pistas de audio: `transition crossfade|dissolve` solapa los clips automáticamente (fades tri emparejados + amix, equivalente a acrossfade; acrossfade literal se descartó porque deja el bed en silencio al mezclarlo junto a un programa de video). Otros tipos se rechazan en audio.
+- Tests: 61/61 verdes en Node 22 con Chrome (incluye 4 HyperFrames reales).

@@ -18,7 +18,7 @@ const clipSchema = z.object({
   transition: z
     .object({ type: z.enum(TRANSITION_TYPES), durationSec: z.number().positive() })
     .optional()
-    .describe("Transition from the previous clip into this one (clips overlap by durationSec)"),
+    .describe("Transition from the previous clip into this one (clips overlap by durationSec). Audio tracks: crossfade/dissolve (overlapping tri fades)"),
 });
 const timelineSchema = z.object({
   width: z.number().int().positive(),
@@ -144,7 +144,7 @@ export function createServer(): McpServer {
     "render",
     {
       description:
-        "Encode a file or assemble a timeline with a fixed delivery preset: web-1080p (16:9), vertical-9x16, square (H.264+AAC, fit-and-pad) or audio-only (AAC .m4a). Optional alpha overlay or HyperFrames layer on top.",
+        "Encode a file or assemble a timeline with a fixed delivery preset: web-1080p (16:9), vertical-9x16, square (H.264+AAC, fit-and-pad) or audio-only (AAC .m4a). Optional alpha overlay / HyperFrames layers on top (timed, stacked by zIndex, positioned and scaled).",
       inputSchema: {
         input: z.string().min(1).optional().describe("Source media path (or pass timeline)"),
         timeline: timelineSchema.optional().describe("Timeline: first video track is the program (clips trimmed by in/out, placed by startSec or back-to-back, joined by transitions); audio tracks are mixed under it"),
@@ -152,6 +152,21 @@ export function createServer(): McpServer {
         hyperframes: z.string().min(1).optional().describe("HyperFrames composition HTML rendered with alpha and composited over the program (needs the optional peer)"),
         layerStartSec: z.number().min(0).optional().describe("Program time where the overlay/HyperFrames layer starts (default 0)"),
         layerDurationSec: z.number().positive().optional().describe("How long the layer is shown (default: until the layer ends)"),
+        layers: z
+          .array(
+            z.object({
+              overlay: z.string().min(1).optional().describe("Alpha video file"),
+              hyperframes: z.string().min(1).optional().describe("HyperFrames composition HTML"),
+              startSec: z.number().min(0).optional().describe("Program time where the layer starts (default 0)"),
+              durationSec: z.number().positive().optional().describe("How long it is shown (default: until it ends)"),
+              zIndex: z.number().optional().describe("Stacking order, higher on top (default: array order)"),
+              x: z.number().min(0).optional().describe("Left position in output pixels (default 0)"),
+              y: z.number().min(0).optional().describe("Top position in output pixels (default 0)"),
+              scale: z.number().positive().max(1).optional().describe("Size as a fraction of the output frame (default 1)"),
+            }),
+          )
+          .optional()
+          .describe("Several layers (exactly one of overlay/hyperframes each), composited bottom to top; combinable with the legacy overlay/hyperframes params (those become the first layer)"),
         preset: z.enum(PRESET_NAMES).describe("Encode preset"),
         output: z.string().min(1).describe("Output file path (.mp4 for video presets, .m4a for audio-only)"),
         overwrite: z.boolean().optional().describe("Replace the output file if it already exists (default false)"),

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -65,5 +66,25 @@ describe.skipIf(!ready)("HyperFrames compose (requires @hyperframes/producer + C
     expect((await probe(output)).durationSec).toBeCloseTo(2, 1);
     expect(isRed(pixelAt(output, 0.5, 960, 510))).toBe(false);
     expect(isRed(pixelAt(output, 1.5, 960, 510))).toBe(true);
+  }, 180_000);
+
+  it("render stacks a HyperFrames layer and an overlay layer at different times", async () => {
+    const output = join(dir, "layered-multi.mp4");
+    const blue = join(dir, "blue-layer.webm");
+    execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=blue:s=320x240:r=25:d=2,format=yuva420p", "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "200k", blue]);
+    const res = await render({
+      timeline: { width: 320, height: 240, fps: 25, tracks: [{ id: "v", kind: "video", clips: [{ id: "a", src: join(dir, "testsrc.mp4"), in: 0, out: 2 }] }] },
+      preset: "web-1080p",
+      output,
+      layers: [
+        { hyperframes: join(dir, "layer", "title.html"), startSec: 0, durationSec: 0.8 },
+        { overlay: blue, startSec: 1.2, x: 0, y: 0, scale: 0.25 },
+      ],
+    });
+    expect(res.layers).toBe(2);
+    expect(isRed(pixelAt(output, 0.4, 960, 510))).toBe(true);
+    expect(isRed(pixelAt(output, 1.5, 960, 510))).toBe(false);
+    const [r, g, b] = pixelAt(output, 1.5, 100, 100);
+    expect(b > 160 && r < 70 && g < 70).toBe(true);
   }, 180_000);
 });

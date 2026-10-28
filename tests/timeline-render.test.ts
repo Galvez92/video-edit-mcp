@@ -87,6 +87,44 @@ describe("timeline placement and transitions (graph)", () => {
   });
 });
 
+describe("layers and audio-track transitions (graph)", () => {
+  const V = { kind: "video" as const, width: 320, height: 240, fps: 25 };
+  const src = { "a.mp4": both, "t.wav": { hasVideo: false, hasAudio: true } };
+  const prog = { id: "v", kind: "video" as const, clips: [{ id: "a", src: "a.mp4", in: 0, out: 2 }] };
+  it("stacks layers by zIndex then array order, with timing, position and scale", () => {
+    const g = buildTimelineGraph({ width: 320, height: 240, fps: 25, tracks: [prog] }, V, src, {
+      layers: [
+        { src: "top.webm", zIndex: 5, startSec: 1, durationSec: 0.5 },
+        { src: "low.mov", x: 10, y: 20, scale: 0.5 },
+        { src: "mid.mov", zIndex: 3 },
+      ],
+    });
+    const order = ["low.mov", "mid.mov", "top.webm"].map((f) => g.inputArgs.indexOf(f));
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect(g.filterComplex).toContain("scale=160:120");
+    expect(g.filterComplex).toContain("overlay=10:20:");
+    expect(g.filterComplex).toContain("enable='between(t,1,1.5)'");
+    expect(g.maps[0]).toBe("[vout]");
+  });
+  it("maps the legacy overlay to the bottom layer and validates layers", () => {
+    const g = buildTimelineGraph({ width: 320, height: 240, fps: 25, tracks: [prog] }, V, src, { overlay: "old.mov", layers: [{ src: "new.mov" }] });
+    expect(g.inputArgs.indexOf("old.mov")).toBeLessThan(g.inputArgs.indexOf("new.mov"));
+    expect(() => buildTimelineGraph({ width: 320, height: 240, fps: 25, tracks: [prog] }, V, src, { layers: [{ src: "x.mov", scale: 2 }] })).toThrow(/scale/);
+  });
+  it("audio-track transitions overlap with matched fades; video-only types are rejected", () => {
+    const tr = (type: "crossfade" | "wipeleft") => ({ width: 320, height: 240, fps: 25, tracks: [{ id: "m", kind: "audio" as const, clips: [
+      { id: "a", src: "t.wav", in: 0, out: 1.5, startSec: 0.5 }, { id: "b", src: "t.wav", in: 0, out: 1.5, transition: { type, durationSec: 0.5 } },
+    ] }] });
+    const g = buildTimelineGraph(tr("crossfade"), { kind: "audio" }, src);
+    expect(g.filterComplex).toContain("afade=t=out:st=1:d=0.5");
+    expect(g.filterComplex).toContain("afade=t=in:d=0.5");
+    expect(g.filterComplex).toContain("adelay=500:all=1");
+    expect(g.filterComplex).toContain("adelay=1500:all=1");
+    expect(g.durationSec).toBeCloseTo(3, 6);
+    expect(() => buildTimelineGraph(tr("wipeleft"), { kind: "audio" }, src)).toThrow(/audio tracks only support/);
+  });
+});
+
 describe.skipIf(!hasFfmpeg)("render from a timeline (requires ffmpeg)", () => {
   let dir = "";
   let client: Client;
@@ -226,6 +264,69 @@ describe.skipIf(!hasFfmpeg)("render from a timeline (requires ffmpeg)", () => {
     expect(isRed(pixelAt(output, 0.5, 540, 540))).toBe(false);
     expect(isRed(pixelAt(output, 1.2, 540, 540))).toBe(true);
     expect(isRed(pixelAt(output, 1.8, 540, 540))).toBe(false);
+  });
+
+  const solid = (name: string, color: string, size = "320x240") => {
+    const p = f(name);
+    execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", `color=c=${color}:s=${size}:r=25:d=2,format=yuva420p`, "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "200k", p]);
+    return p;
+  };
+  const isBlue = ([r, g, b]: number[]) => b! > 160 && r! < 70 && g! < 70;
+  const tl2: Timeline = { width: 320, height: 240, fps: 25, tracks: [{ id: "v", kind: "video", clips: [{ id: "a", src: "", in: 0, out: 2 }] }] };
+
+  it("two layers at different times, positioned and scaled", async () => {
+    const timeline = structuredClone(tl2);
+    timeline.tracks[0]!.clips[0]!.src = f("testsrc.mp4");
+    const output = f("tl-2layers.mp4");
+    const res = await callTool<RenderResult>(client, "render", { timeline, preset: "square", output, layers: [
+      { overlay: solid("l-red.webm", "red"), startSec: 0.2, durationSec: 0.6 },
+      { overlay: solid("l-blue.webm", "blue"), startSec: 1.2, durationSec: 0.6, x: 0, y: 0, scale: 0.5 },
+    ] });
+    expect(res.isError, res.text).toBe(false);
+    expect(res.data.layers).toBe(2);
+    expect(isRed(pixelAt(output, 0.1, 540, 540))).toBe(false);
+    expect(isRed(pixelAt(output, 0.5, 540, 540))).toBe(true);
+    expect(isBlue(pixelAt(output, 0.5, 270, 270))).toBe(false);
+    expect(isBlue(pixelAt(output, 1.5, 270, 270))).toBe(true);
+    expect(isBlue(pixelAt(output, 1.5, 810, 810))).toBe(false);
+    expect(isRed(pixelAt(output, 1.5, 810, 810))).toBe(false);
+  });
+
+  it("stacked layers: zIndex decides which is on top", async () => {
+    const timeline = structuredClone(tl2);
+    timeline.tracks[0]!.clips[0]!.src = f("testsrc.mp4");
+    const red = solid("s-red.webm", "red");
+    const blue = solid("s-blue.webm", "blue");
+    const a = f("tl-stack-a.mp4");
+    const b = f("tl-stack-b.mp4");
+    expect((await callTool(client, "render", { timeline, preset: "square", output: a, layers: [{ overlay: red }, { overlay: blue }] })).isError).toBe(false);
+    expect((await callTool(client, "render", { timeline, preset: "square", output: b, layers: [{ overlay: red, zIndex: 2 }, { overlay: blue, zIndex: 1 }] })).isError).toBe(false);
+    expect(isBlue(pixelAt(a, 1, 540, 540))).toBe(true);
+    expect(isRed(pixelAt(b, 1, 540, 540))).toBe(true);
+  });
+
+  it("audio-track crossfade overlaps clips with no silence at the join", async () => {
+    const timeline: Timeline = { width: 320, height: 240, fps: 25, tracks: [{ id: "m", kind: "audio", clips: [
+      { id: "a", src: f("tone.wav"), in: 0, out: 1.5 },
+      { id: "b", src: f("testsrc.mp4"), in: 0, out: 1.5, transition: { type: "crossfade", durationSec: 0.5 } },
+    ] }] };
+    const output = f("tl-axfade.m4a");
+    const res = await callTool<RenderResult>(client, "render", { timeline, preset: "audio-only", output });
+    expect(res.isError, res.text).toBe(false);
+    expect((await probeOut(output)).durationSec).toBeCloseTo(2.5, 1);
+    for (let t = 0.9; t < 1.7; t += 0.1) expect(meanVolume(output, t, 0.1), `window at ${t.toFixed(1)}s`).toBeGreaterThan(-40);
+  });
+
+  it("audio-track crossfade under a video program keeps the program length", async () => {
+    const timeline: Timeline = { width: 320, height: 240, fps: 25, tracks: [
+      { id: "v", kind: "video", clips: [{ id: "v1", src: f("silent.mp4"), in: 0, out: 1 }, { id: "v2", src: f("silent.mp4"), in: 0, out: 1 }] },
+      { id: "m", kind: "audio", clips: [{ id: "a", src: f("tone.wav"), in: 0, out: 1.2 }, { id: "b", src: f("tone.wav"), in: 0, out: 1.2, transition: { type: "crossfade", durationSec: 0.4 } }] },
+    ] };
+    const output = f("tl-axfade-prog.mp4");
+    const res = await callTool<RenderResult>(client, "render", { timeline, preset: "square", output });
+    expect(res.isError, res.text).toBe(false);
+    expect((await probeOut(output)).durationSec).toBeCloseTo(2, 1);
+    for (let t = 0.6; t < 1.3; t += 0.1) expect(meanVolume(output, t, 0.1)).toBeGreaterThan(-40);
   });
 
   it("rejects input+timeline together and missing sources", async () => {

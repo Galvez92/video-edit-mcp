@@ -26,13 +26,40 @@ export interface TimelineGraph {
   durationSec: number;
 }
 
+/** One alpha video layer composited over the program. */
+export interface GraphLayer {
+  /** Video with alpha (e.g. a HyperFrames webm / ProRes 4444 mov). */
+  src: string;
+  /** Program time where the layer starts (s). Default 0. */
+  startSec?: number;
+  /** How long it is shown (s); default until the layer ends. */
+  durationSec?: number;
+  /** Stacking order: higher is on top. Ties keep array order. Default: array index. */
+  zIndex?: number;
+  /** Top-left position in output pixels. Default 0,0. */
+  x?: number;
+  y?: number;
+  /** Size as a fraction of the output frame (0 < scale <= 1). Default 1 (full frame). */
+  scale?: number;
+}
+
 export interface GraphOptions {
-  /** Video with alpha (e.g. a HyperFrames webm) laid over the whole program, scaled to the frame. */
+  /** Layers composited bottom → top by zIndex. */
+  layers?: GraphLayer[];
+  /** Legacy single layer (mapped to `layers[0]`). */
   overlay?: string;
-  /** Program time where the overlay starts (s). */
   layerStartSec?: number;
-  /** How long the overlay is shown (s); default until it ends. */
   layerDurationSec?: number;
+}
+
+/** Sort layers bottom → top (zIndex, then array order) and validate them. */
+export function orderLayers(layers: GraphLayer[]): GraphLayer[] {
+  layers.forEach((l, i) => {
+    if ((l.startSec ?? 0) < 0) throw new Error(`layer ${i}: startSec must be >= 0`);
+    if (l.durationSec !== undefined && !(l.durationSec > 0)) throw new Error(`layer ${i}: durationSec must be > 0`);
+    if (l.scale !== undefined && !(l.scale > 0 && l.scale <= 1)) throw new Error(`layer ${i}: scale must be in (0, 1]`);
+  });
+  return layers.map((l, i) => ({ l, z: l.zIndex ?? i, i })).sort((a, b) => a.z - b.z || a.i - b.i).map((x) => x.l);
 }
 
 const AFMT = "aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo";
@@ -149,7 +176,10 @@ export function buildTimelineGraph(tl: Timeline, target: GraphTarget, sources: S
       const i = addInput(c);
       const d = clipDuration(c);
       const ms = Math.round(start * 1000);
-      // Fades stand in for the crossfade: the incoming clip fades in while the previous one fades out.
+      // Crossfade = real overlap: placeClips starts the incoming clip `durationSec` early; it fades in (tri)
+      // while the outgoing clip fades out over the same window and both are summed (same curve as acrossfade c1/c2=tri).
+      // A literal acrossfade filter is not used here: feeding acrossfade into amix next to a video program stalls the
+      // bed in ffmpeg's scheduler (no frames reach the mixer), while fade+adelay+amix is sample-accurate and stable.
       const next = placements[k + 1]?.clip.transition;
       const fin = c.transition ? `,afade=t=in:d=${num(c.transition.durationSec)}` : "";
       const fout = next ? `,afade=t=out:st=${num(d - next.durationSec)}:d=${num(next.durationSec)}` : "";
@@ -173,18 +203,27 @@ export function buildTimelineGraph(tl: Timeline, target: GraphTarget, sources: S
   }
 
   let videoOut = programVideo;
-  if (programVideo && opts.overlay) {
+  const layers = [...(opts.layers ?? [])];
+  if (opts.overlay) layers.unshift({ src: opts.overlay, startSec: opts.layerStartSec, durationSec: opts.layerDurationSec });
+  if (layers.length && !programVideo) throw new Error("layers need a video program");
+  if (programVideo && layers.length) {
     const { width: w, height: h } = target as Required<GraphTarget>;
-    // libvpx-vp9 decodes the alpha plane of VP9 webm (the native decoder drops it).
-    if (/\.webm$/i.test(opts.overlay)) inputArgs.push("-c:v", "libvpx-vp9");
-    inputArgs.push("-i", opts.overlay);
-    const o = idx++;
-    const st = opts.layerStartSec ?? 0;
-    if (st < 0) throw new Error("layerStartSec must be >= 0");
-    const shift = st > 0 ? `+${num(st)}/TB` : "";
-    const enable = opts.layerDurationSec ? `:enable='between(t,${num(st)},${num(st + opts.layerDurationSec)})'` : "";
-    parts.push(`[${o}:v]setpts=PTS-STARTPTS${shift},scale=${w}:${h},format=yuva420p[ov]`);
-    parts.push(`${programVideo}[ov]overlay=0:0:eof_action=pass:format=auto${enable},format=yuv420p[vout]`);
+    orderLayers(layers).forEach((l, n) => {
+      // libvpx-vp9 decodes the alpha plane of VP9 webm (the native decoder drops it).
+      if (/\.webm$/i.test(l.src)) inputArgs.push("-c:v", "libvpx-vp9");
+      inputArgs.push("-i", l.src);
+      const o = idx++;
+      const st = l.startSec ?? 0;
+      const shift = st > 0 ? `+${num(st)}/TB` : "";
+      const enable = l.durationSec ? `:enable='between(t,${num(st)},${num(st + l.durationSec)})'` : "";
+      const sc = l.scale ?? 1;
+      const lw = Math.max(2, Math.round((w * sc) / 2) * 2);
+      const lh = Math.max(2, Math.round((h * sc) / 2) * 2);
+      parts.push(`[${o}:v]setpts=PTS-STARTPTS${shift},scale=${lw}:${lh},format=yuva420p[ly${n}]`);
+      parts.push(`${videoOut}[ly${n}]overlay=${Math.round(l.x ?? 0)}:${Math.round(l.y ?? 0)}:eof_action=pass:format=auto${enable}[lo${n}]`);
+      videoOut = `[lo${n}]`;
+    });
+    parts.push(`${videoOut}format=yuv420p[vout]`);
     videoOut = "[vout]";
   }
 

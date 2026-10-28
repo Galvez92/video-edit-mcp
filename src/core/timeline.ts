@@ -20,6 +20,8 @@ export interface Clip {
 
 export const TRANSITION_TYPES = ["crossfade", "dissolve", "fadeblack", "fadewhite", "wipeleft", "wiperight", "slideleft", "slideright"] as const;
 export type TransitionType = (typeof TRANSITION_TYPES)[number];
+/** Transitions valid on audio tracks (both render as an acrossfade). */
+export const AUDIO_TRANSITIONS: readonly TransitionType[] = ["crossfade", "dissolve"];
 export interface Transition {
   type: TransitionType;
   durationSec: number;
@@ -54,6 +56,8 @@ export function placeClips(t: Track): { placements: Placement[]; errors: string[
       else if (td > clipDuration(prev.clip) + EPS || td > d + EPS)
         errors.push(`clip ${c.id}: transition ${td}s is longer than a neighbouring clip (${prev.clip.id} ${clipDuration(prev.clip)}s, ${c.id} ${d}s)`);
       else if (t.kind === "caption") errors.push(`clip ${c.id}: transitions are not supported on caption tracks`);
+      else if (t.kind === "audio" && !AUDIO_TRANSITIONS.includes(c.transition.type))
+        errors.push(`clip ${c.id}: audio tracks only support ${AUDIO_TRANSITIONS.join("/")} transitions (got ${c.transition.type})`);
       else {
         const joined = prev.end - td;
         if (c.startSec !== undefined && Math.abs(c.startSec - joined) > 1e-3)

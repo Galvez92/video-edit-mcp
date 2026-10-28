@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import { compose } from "./compose.js";
 import type { Timeline } from "./timeline.js";
-import { buildTimelineGraph, type SourceInfo } from "./timelineRender.js";
+import { buildTimelineGraph, type GraphLayer, type SourceInfo } from "./timelineRender.js";
 import { inspect, type OnProgress } from "./edit.js";
 import { ffmpeg, ffmpegWithProgress, probe, type ProbeResult } from "./ffmpeg.js";
 import { buildZip } from "./zip.js";
@@ -52,8 +52,17 @@ export interface RenderRequest {
   layerStartSec?: number;
   /** How long the layer is shown (s). Default: until the layer ends. */
   layerDurationSec?: number;
+  /** Several layers composited bottom → top (zIndex, then array order). Each has exactly one of overlay/hyperframes. */
+  layers?: RenderLayer[];
   overwrite?: boolean;
   onProgress?: OnProgress;
+}
+
+export interface RenderLayer extends Omit<GraphLayer, "src"> {
+  /** Alpha video file. */
+  overlay?: string;
+  /** HyperFrames composition HTML (rendered with alpha). */
+  hyperframes?: string;
 }
 
 export interface RenderResult {
@@ -61,6 +70,8 @@ export interface RenderResult {
   preset: PresetName;
   durationSec: number;
   overlay?: string;
+  /** Number of layers composited. */
+  layers?: number;
 }
 
 function guardOutput(output: string, overwrite?: boolean): void {
@@ -77,9 +88,20 @@ export async function render(req: RenderRequest): Promise<RenderResult> {
   const preset: Preset = PRESETS[req.preset];
   if (!preset) throw new Error(`unknown preset: ${req.preset}`);
   if (Boolean(req.input) === Boolean(req.timeline)) throw new Error("pass exactly one of input or timeline");
-  if ((req.overlay || req.hyperframes) && preset.kind !== "video") throw new Error("overlay/hyperframes need a video preset");
   if (req.overlay && req.hyperframes) throw new Error("pass at most one of overlay or hyperframes");
-  if (req.overlay && !existsSync(req.overlay)) throw new Error(`overlay not found: ${req.overlay}`);
+  // Legacy single-layer params map to a first layer.
+  const reqLayers: RenderLayer[] = [
+    ...(req.overlay || req.hyperframes
+      ? [{ overlay: req.overlay, hyperframes: req.hyperframes, startSec: req.layerStartSec, durationSec: req.layerDurationSec }]
+      : []),
+    ...(req.layers ?? []),
+  ];
+  if (reqLayers.length && preset.kind !== "video") throw new Error("overlay/hyperframes/layers need a video preset");
+  reqLayers.forEach((l, i) => {
+    if (Boolean(l.overlay) === Boolean(l.hyperframes)) throw new Error(`layer ${i}: pass exactly one of overlay or hyperframes`);
+    if (l.overlay && !existsSync(l.overlay)) throw new Error(`overlay not found: ${l.overlay}`);
+    if (l.hyperframes && !existsSync(l.hyperframes)) throw new Error(`hyperframes composition not found: ${l.hyperframes}`);
+  });
   guardOutput(req.output, req.overwrite);
 
   // Single input → same as a one-clip timeline over the whole file.
@@ -108,16 +130,20 @@ export async function render(req: RenderRequest): Promise<RenderResult> {
     }
   }
 
-  let overlay = req.overlay;
   let tmp: string | undefined;
   try {
-    if (req.hyperframes) {
-      tmp = mkdtempSync(join(tmpdir(), "vem-hf-"));
-      overlay = join(tmp, "layer.webm");
-      await compose({ composition: req.hyperframes, output: overlay, format: "webm", fps: (preset as VideoPreset).fps });
+    const layers: GraphLayer[] = [];
+    for (const [i, l] of reqLayers.entries()) {
+      let src = l.overlay!;
+      if (l.hyperframes) {
+        tmp ??= mkdtempSync(join(tmpdir(), "vem-hf-"));
+        src = join(tmp, `layer${i}.webm`);
+        await compose({ composition: l.hyperframes, output: src, format: "webm", fps: (preset as VideoPreset).fps });
+      }
+      layers.push({ src, startSec: l.startSec, durationSec: l.durationSec, zIndex: l.zIndex ?? i, x: l.x, y: l.y, scale: l.scale });
     }
     const target = preset.kind === "video" ? { kind: "video" as const, width: preset.width, height: preset.height, fps: preset.fps } : { kind: "audio" as const };
-    const g = buildTimelineGraph(tl, target, sources, { overlay, layerStartSec: req.layerStartSec, layerDurationSec: req.layerDurationSec });
+    const g = buildTimelineGraph(tl, target, sources, { layers });
     const args = ["-y", ...g.inputArgs, "-filter_complex", g.filterComplex];
     for (const m of g.maps) args.push("-map", m);
     if (preset.kind === "video") args.push(...videoEncodeArgs(preset), ...audioEncodeArgs(preset.audioBitrate));
@@ -130,7 +156,7 @@ export async function render(req: RenderRequest): Promise<RenderResult> {
     if (tmp) rmSync(tmp, { recursive: true, force: true });
   }
   const out = await probe(req.output);
-  return { output: req.output, preset: req.preset, durationSec: out.durationSec ?? 0, ...(req.overlay || req.hyperframes ? { overlay: req.hyperframes ? "hyperframes" : req.overlay } : {}) };
+  return { output: req.output, preset: req.preset, durationSec: out.durationSec ?? 0, ...(req.overlay || req.hyperframes ? { overlay: req.hyperframes ? "hyperframes" : req.overlay } : {}), ...(reqLayers.length ? { layers: reqLayers.length } : {}) };
 }
 
 export interface Loudness {
