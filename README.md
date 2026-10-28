@@ -29,6 +29,9 @@ MCP client config (stdio):
 | `cut` | Keep several ranges of one file and join them in order |
 | `concat` | Join files into one, normalizing resolution/fps/audio |
 
+## Timeline layer sizing
+`render` layers keep their source aspect ratio: `scale` (fraction of frame width, or `scaleMode: "native"`), or `width`/`height` in px (one keeps aspect). When both `width` and `height` are given, `fit` defaults to `contain` (fit inside the box, centred); use `cover` to fill and crop, or `fit: "stretch"` explicitly to distort to the exact box. A layer with no size fills the frame. Off-frame positions are clamped and reported in `warnings`.
+
 ## Roadmap
 1. Cut / trim / concat / assemble timeline
 2. Local transcription (Whisper) · animated captions rendered with HyperFrames (SRT/ASS export + ffmpeg fallback) · reframe 9:16/1:1/16:9 · audio mix, ducking, loudnorm −16 LUFS

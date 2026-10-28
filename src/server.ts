@@ -176,7 +176,7 @@ export function createServer(): McpServer {
               scaleMode: z.enum(["frame-width", "native"]).optional().describe("How scale is measured (default frame-width)"),
               width: z.number().min(2).optional().describe("Layer width in px; alone keeps the source aspect"),
               height: z.number().min(2).optional().describe("Layer height in px; alone keeps the source aspect; with width = explicit box (see fit)"),
-              fit: z.enum(["contain", "cover", "stretch"]).optional().describe("How the source fills an explicit box or, with no size, the full frame: stretch (default), contain, cover"),
+              fit: z.enum(["contain", "cover", "stretch"]).optional().describe("How the source fills an explicit width+height box (default contain: fit inside, centred, keeps aspect; cover: fill and crop; stretch: exact box, distorts). With no size the layer fills the frame (default stretch)"),
               fadeInSec: z.number().positive().optional().describe("Alpha fade-in at the layer start (s)"),
               fadeOutSec: z.number().positive().optional().describe("Alpha fade-out before the layer end (s); needs durationSec; fadeIn+fadeOut must fit"),
               enter: motionSchema.optional().describe("Entry motion: slide-left/right/up/down from off-frame, or scale up from zero"),

@@ -60,3 +60,5 @@ Formato: `## YYYY-MM-DD — rama — resumen` + detalles (qué, tests, pendiente
 - Bug de la demo: `scale` era fracción del cuadro en ambos ejes y deformaba capas pequeñas (insignia 360x120 → ~356x634, fuera de cuadro).
 - Ahora las capas conservan su proporción: `scale` = fracción del ancho del cuadro (`scaleMode: native` = fracción del tamaño propio), `width`/`height` en px, `fit: contain|cover|stretch`; sin tamaño se comportan igual que antes (cuadro completo). Posición fuera de cuadro se ajusta y se reporta en `warnings`. El resultado de `render` trae width/height/fps/codecs/bytes medidos.
 - Tests: 79/79 verdes en Node 22 (incluye HyperFrames reales).
+
+- 2026-10-28: con `width` + `height` el `fit` por defecto de las capas pasa de `stretch` a `contain` (aprobado por el owner); `stretch` sigue disponible de forma explícita.

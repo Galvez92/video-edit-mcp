@@ -53,7 +53,7 @@ export interface GraphLayer {
   height?: number;
   /**
    * How the source fills an explicit box (width+height, or the full frame when no size is given):
-   * `stretch` (default, exact box), `contain` (fit inside, centred, keeps aspect), `cover` (fill and crop, keeps aspect).
+   * `contain` (default with width+height: fit inside, centred, keeps aspect), `cover` (fill and crop, keeps aspect), `stretch` (exact box, distorts). With no size the layer fills the frame and defaults to `stretch` (previous behaviour).
    */
   fit?: LayerFit;
   /** Source pixel size (filled in by `render` from ffprobe). Without it the source is assumed to have the frame's aspect. */
@@ -89,7 +89,7 @@ export interface LayerLayout {
 
 const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
 
-/** Resolve a layer's on-frame size and position (aspect kept unless `stretch` with an explicit box), clamping it into the frame. */
+/** Resolve a layer's on-frame size and position (aspect kept unless `fit: "stretch"` is explicit or the layer has no size), clamping it into the frame. */
 export function layoutLayer(l: GraphLayer, W: number, H: number, label = "layer"): LayerLayout {
   const srcW = l.srcWidth && l.srcWidth > 0 ? l.srcWidth : W;
   const srcH = l.srcHeight && l.srcHeight > 0 ? l.srcHeight : H;
@@ -104,10 +104,11 @@ export function layoutLayer(l: GraphLayer, W: number, H: number, label = "layer"
     if ((l.scaleMode ?? "frame-width") === "native") [sw, sh] = [srcW * l.scale, srcH * l.scale];
     else [sw, sh] = [W * l.scale, (W * l.scale) / ar];
   } else [boxW, boxH] = [W, H]; // no size: fill the frame (previous behaviour)
+  const explicitBox = l.width !== undefined && l.height !== undefined;
   let w: number, h: number;
   let offX = 0, offY = 0, crop = false;
   if (boxW !== undefined && boxH !== undefined) {
-    const fit = l.fit ?? "stretch";
+    const fit = l.fit ?? (explicitBox ? "contain" : "stretch");
     if (fit === "stretch") [sw, sh] = [boxW, boxH];
     else {
       const k = fit === "contain" ? Math.min(boxW / srcW, boxH / srcH) : Math.max(boxW / srcW, boxH / srcH);

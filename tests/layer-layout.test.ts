@@ -20,10 +20,11 @@ describe("layoutLayer", () => {
     const l = layoutLayer({ ...badge, scale: 0.5, scaleMode: "native" }, 1080, 1920);
     expect([l.w, l.h]).toEqual([180, 60]);
   });
-  it("width only / height only keep aspect; both = explicit box (stretch by default)", () => {
+  it("width only / height only keep aspect; both = explicit box (contain by default)", () => {
     expect(layoutLayer({ ...badge, width: 540 }, 1080, 1920)).toMatchObject({ w: 540, h: 180 });
     expect(layoutLayer({ ...badge, height: 300 }, 1080, 1920)).toMatchObject({ w: 900, h: 300 });
-    expect(layoutLayer({ ...badge, width: 400, height: 400 }, 1080, 1920)).toMatchObject({ w: 400, h: 400, crop: false });
+    expect(layoutLayer({ ...badge, width: 400, height: 400, x: 100, y: 100 }, 1080, 1920)).toMatchObject({ w: 400, h: 134, x: 100, y: 233, crop: false });
+    expect(layoutLayer({ ...badge, width: 400, height: 400, fit: "stretch" }, 1080, 1920)).toMatchObject({ w: 400, h: 400, crop: false });
   });
   it("contain centres inside the box, cover crops to it", () => {
     expect(layoutLayer({ ...badge, width: 400, height: 400, fit: "contain", x: 100, y: 100 }, 1080, 1920)).toMatchObject({ w: 400, h: 134, x: 100, y: 233 });
