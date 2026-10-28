@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import { compose } from "./compose.js";
 import type { Timeline } from "./timeline.js";
-import { buildTimelineGraph, type GraphLayer, type SourceInfo } from "./timelineRender.js";
+import { buildTimelineGraph, orderLayers, type GraphLayer, type SourceInfo } from "./timelineRender.js";
 import { inspect, type OnProgress } from "./edit.js";
 import { ffmpeg, ffmpegWithProgress, probe, type ProbeResult } from "./ffmpeg.js";
 import { buildZip } from "./zip.js";
@@ -103,6 +103,8 @@ export async function render(req: RenderRequest): Promise<RenderResult> {
     if (l.hyperframes && !existsSync(l.hyperframes)) throw new Error(`hyperframes composition not found: ${l.hyperframes}`);
   });
   guardOutput(req.output, req.overwrite);
+  // Validate layer timing/animation up front (before any HyperFrames compose).
+  orderLayers(reqLayers.map((l) => ({ ...l, src: "" })));
 
   // Single input → same as a one-clip timeline over the whole file.
   let timeline = req.timeline;
@@ -140,7 +142,7 @@ export async function render(req: RenderRequest): Promise<RenderResult> {
         src = join(tmp, `layer${i}.webm`);
         await compose({ composition: l.hyperframes, output: src, format: "webm", fps: (preset as VideoPreset).fps });
       }
-      layers.push({ src, startSec: l.startSec, durationSec: l.durationSec, zIndex: l.zIndex ?? i, x: l.x, y: l.y, scale: l.scale });
+      layers.push({ src, startSec: l.startSec, durationSec: l.durationSec, zIndex: l.zIndex ?? i, x: l.x, y: l.y, scale: l.scale, fadeInSec: l.fadeInSec, fadeOutSec: l.fadeOutSec, enter: l.enter, exit: l.exit });
     }
     const target = preset.kind === "video" ? { kind: "video" as const, width: preset.width, height: preset.height, fps: preset.fps } : { kind: "audio" as const };
     const g = buildTimelineGraph(tl, target, sources, { layers });

@@ -5,7 +5,8 @@ import { z } from "zod";
 import { concat, cut, trim, type OnProgress } from "./core/edit.js";
 import { health, probe } from "./core/ffmpeg.js";
 import { compose } from "./core/compose.js";
-import { TRANSITION_TYPES } from "./core/timeline.js";
+import { AUDIO_CURVES, TRANSITION_TYPES } from "./core/timeline.js";
+import { LAYER_MOTIONS } from "./core/timelineRender.js";
 import { exportPackage, PRESET_NAMES, render } from "./core/render.js";
 
 const clipSchema = z.object({
@@ -16,10 +17,19 @@ const clipSchema = z.object({
   gainDb: z.number().optional(),
   startSec: z.number().min(0).optional().describe("Position on the timeline in seconds (default: right after the previous clip; gaps are black + silence)"),
   transition: z
-    .object({ type: z.enum(TRANSITION_TYPES), durationSec: z.number().positive() })
+    .object({
+      type: z.enum(TRANSITION_TYPES),
+      durationSec: z.number().positive(),
+      curve: z.enum(AUDIO_CURVES).optional().describe("Audio crossfade curve, same on both sides (default linear; equal-power keeps loudness constant). Video unaffected"),
+    })
     .optional()
-    .describe("Transition from the previous clip into this one (clips overlap by durationSec). Audio tracks: crossfade/dissolve (overlapping tri fades)"),
+    .describe("Transition from the previous clip into this one (clips overlap by durationSec). Audio tracks: crossfade/dissolve (overlapping fades)"),
+  audioFade: z
+    .object({ inSec: z.number().min(0).optional(), outSec: z.number().min(0).optional(), curve: z.enum(AUDIO_CURVES).optional() })
+    .optional()
+    .describe("Audio fade in/out of the clip (in+out must fit in the clip), with curve (default linear)"),
 });
+const motionSchema = z.object({ type: z.enum(LAYER_MOTIONS), durationSec: z.number().positive() });
 const timelineSchema = z.object({
   width: z.number().int().positive(),
   height: z.number().int().positive(),
@@ -163,6 +173,10 @@ export function createServer(): McpServer {
               x: z.number().min(0).optional().describe("Left position in output pixels (default 0)"),
               y: z.number().min(0).optional().describe("Top position in output pixels (default 0)"),
               scale: z.number().positive().max(1).optional().describe("Size as a fraction of the output frame (default 1)"),
+              fadeInSec: z.number().positive().optional().describe("Alpha fade-in at the layer start (s)"),
+              fadeOutSec: z.number().positive().optional().describe("Alpha fade-out before the layer end (s); needs durationSec; fadeIn+fadeOut must fit"),
+              enter: motionSchema.optional().describe("Entry motion: slide-left/right/up/down from off-frame, or scale up from zero"),
+              exit: motionSchema.optional().describe("Exit motion off-frame or scale down to zero; needs durationSec"),
             }),
           )
           .optional()

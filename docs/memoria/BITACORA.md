@@ -50,3 +50,8 @@ Formato: `## YYYY-MM-DD — rama — resumen` + detalles (qué, tests, pendiente
 - `render.layers[]` (`overlay` | `hyperframes`, `startSec`, `durationSec`, `zIndex`, `x`, `y`, `scale`) compuestas en orden de zIndex; `overlay`/`hyperframes`/`layerStartSec`/`layerDurationSec` siguen funcionando (se mapean a la primera capa).
 - Pistas de audio: `transition crossfade|dissolve` solapa los clips automáticamente (fades tri emparejados + amix, equivalente a acrossfade; acrossfade literal se descartó porque deja el bed en silencio al mezclarlo junto a un programa de video). Otros tipos se rechazan en audio.
 - Tests: 61/61 verdes en Node 22 con Chrome (incluye 4 HyperFrames reales).
+
+## 2026-10-28 · feat/render-export · animación de capas y curvas de audio
+- Capas: `fadeInSec`/`fadeOutSec` (fade alfa) y `enter`/`exit` (slide-left/right/up/down, scale) con `durationSec`; se valida que fades y movimientos quepan en la duración de la capa.
+- Audio: `transition.curve` y `audioFade {inSec,outSec,curve}` con linear/exponential/log/s-curve/equal-power (tri/exp/log/hsin/qsin), misma curva en ambos lados del crossfade. Video sin cambios.
+- Tests: 69/69 verdes en Node 22 (incluye HyperFrames reales). Pendiente de la rama: nada dentro de su alcance.

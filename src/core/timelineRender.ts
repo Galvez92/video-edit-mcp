@@ -1,4 +1,4 @@
-import { clipDuration, placeClips, validateTimeline, type Clip, type Timeline, type TransitionType } from "./timeline.js";
+import { AFADE_CURVE, clipDuration, placeClips, validateTimeline, type AudioCurve, type Clip, type Timeline, type TransitionType } from "./timeline.js";
 
 /** Timeline transition → ffmpeg xfade transition name. */
 const XFADE: Record<TransitionType, string> = {
@@ -41,6 +41,20 @@ export interface GraphLayer {
   y?: number;
   /** Size as a fraction of the output frame (0 < scale <= 1). Default 1 (full frame). */
   scale?: number;
+  /** Alpha fade-in at the layer start (s). */
+  fadeInSec?: number;
+  /** Alpha fade-out before the layer end (s); needs `durationSec`. */
+  fadeOutSec?: number;
+  /** Entry motion from off-frame (slide) or from zero size (scale) into place. */
+  enter?: LayerMotion;
+  /** Exit motion out of frame (slide) or down to zero size (scale); needs `durationSec`. */
+  exit?: LayerMotion;
+}
+
+export const LAYER_MOTIONS = ["slide-left", "slide-right", "slide-up", "slide-down", "scale"] as const;
+export interface LayerMotion {
+  type: (typeof LAYER_MOTIONS)[number];
+  durationSec: number;
 }
 
 export interface GraphOptions {
@@ -58,6 +72,23 @@ export function orderLayers(layers: GraphLayer[]): GraphLayer[] {
     if ((l.startSec ?? 0) < 0) throw new Error(`layer ${i}: startSec must be >= 0`);
     if (l.durationSec !== undefined && !(l.durationSec > 0)) throw new Error(`layer ${i}: durationSec must be > 0`);
     if (l.scale !== undefined && !(l.scale > 0 && l.scale <= 1)) throw new Error(`layer ${i}: scale must be in (0, 1]`);
+    for (const k of ["fadeInSec", "fadeOutSec"] as const)
+      if (l[k] !== undefined && !(l[k]! > 0)) throw new Error(`layer ${i}: ${k} must be > 0`);
+    for (const k of ["enter", "exit"] as const) {
+      const m = l[k];
+      if (!m) continue;
+      if (!LAYER_MOTIONS.includes(m.type)) throw new Error(`layer ${i}: unknown ${k} motion ${m.type}`);
+      if (!(m.durationSec > 0)) throw new Error(`layer ${i}: ${k}.durationSec must be > 0`);
+    }
+    if ((l.fadeOutSec || l.exit) && l.durationSec === undefined)
+      throw new Error(`layer ${i}: fadeOutSec/exit need durationSec (the layer end must be known)`);
+    if (l.durationSec !== undefined) {
+      const d = l.durationSec;
+      const fades = (l.fadeInSec ?? 0) + (l.fadeOutSec ?? 0);
+      if (fades > d + 1e-6) throw new Error(`layer ${i}: fadeInSec + fadeOutSec (${fades}s) do not fit in durationSec (${d}s)`);
+      const moves = (l.enter?.durationSec ?? 0) + (l.exit?.durationSec ?? 0);
+      if (moves > d + 1e-6) throw new Error(`layer ${i}: enter + exit durations (${moves}s) do not fit in durationSec (${d}s)`);
+    }
   });
   return layers.map((l, i) => ({ l, z: l.zIndex ?? i, i })).sort((a, b) => a.z - b.z || a.i - b.i).map((x) => x.l);
 }
@@ -95,6 +126,15 @@ export function buildTimelineGraph(tl: Timeline, target: GraphTarget, sources: S
     return s;
   };
   const gain = (c: Clip) => (c.gainDb ? `,volume=${c.gainDb}dB` : "");
+  const curve = (cv?: AudioCurve) => AFADE_CURVE[cv ?? "linear"];
+  /** Clip-level audio fades (audioFade), in clip-local time. */
+  const clipFades = (c: Clip) => {
+    const f = c.audioFade;
+    if (!f) return "";
+    const d = clipDuration(c);
+    const cv = curve(f.curve);
+    return (f.inSec ? `,afade=t=in:d=${num(f.inSec)}:curve=${cv}` : "") + (f.outSec ? `,afade=t=out:st=${num(d - f.outSec)}:d=${num(f.outSec)}:curve=${cv}` : "");
+  };
 
   let programAudio: string | undefined;
   let programVideo: string | undefined;
@@ -125,7 +165,7 @@ export function buildTimelineGraph(tl: Timeline, target: GraphTarget, sources: S
         );
         v = `[v${k}]`;
       }
-      if (s.hasAudio) parts.push(`[${i}:a]asetpts=PTS-STARTPTS,${AFMT}${gain(c)},apad,atrim=0:${num(d)}[a${k}]`);
+      if (s.hasAudio) parts.push(`[${i}:a]asetpts=PTS-STARTPTS,${AFMT}${gain(c)},apad,atrim=0:${num(d)}${clipFades(c)}[a${k}]`);
       else parts.push(`anullsrc=r=48000:cl=stereo,atrim=0:${num(d)},${AFMT}[a${k}]`);
       const a = `[a${k}]`;
       if (c.transition && chain) {
@@ -134,7 +174,7 @@ export function buildTimelineGraph(tl: Timeline, target: GraphTarget, sources: S
           parts.push(`${chain.v}${v}xfade=transition=${XFADE[c.transition.type]}:duration=${num(td)}:offset=${num(chain.len - td)}[x${k}]`);
           chain.v = `[x${k}]`;
         }
-        parts.push(`${chain.a}${a}acrossfade=d=${num(td)}:c1=tri:c2=tri[xa${k}]`);
+        parts.push(`${chain.a}${a}acrossfade=d=${num(td)}:c1=${curve(c.transition.curve)}:c2=${curve(c.transition.curve)}[xa${k}]`);
         chain.a = `[xa${k}]`;
         chain.len += d - td;
       } else {
@@ -181,9 +221,10 @@ export function buildTimelineGraph(tl: Timeline, target: GraphTarget, sources: S
       // A literal acrossfade filter is not used here: feeding acrossfade into amix next to a video program stalls the
       // bed in ffmpeg's scheduler (no frames reach the mixer), while fade+adelay+amix is sample-accurate and stable.
       const next = placements[k + 1]?.clip.transition;
-      const fin = c.transition ? `,afade=t=in:d=${num(c.transition.durationSec)}` : "";
-      const fout = next ? `,afade=t=out:st=${num(d - next.durationSec)}:d=${num(next.durationSec)}` : "";
-      parts.push(`[${i}:a]asetpts=PTS-STARTPTS,${AFMT}${gain(c)},atrim=0:${num(d)}${fin}${fout}${ms > 0 ? `,adelay=${ms}:all=1` : ""}[m${m}_${k}]`);
+      // Same curve on both sides of the summed crossfade (the incoming clip's transition.curve).
+      const fin = c.transition ? `,afade=t=in:d=${num(c.transition.durationSec)}:curve=${curve(c.transition.curve)}` : "";
+      const fout = next ? `,afade=t=out:st=${num(d - next.durationSec)}:d=${num(next.durationSec)}:curve=${curve(next.curve)}` : "";
+      parts.push(`[${i}:a]asetpts=PTS-STARTPTS,${AFMT}${gain(c)},atrim=0:${num(d)}${clipFades(c)}${fin}${fout}${ms > 0 ? `,adelay=${ms}:all=1` : ""}[m${m}_${k}]`);
       segs.push(`[m${m}_${k}]`);
       end = Math.max(end, start + d);
     });
@@ -219,8 +260,42 @@ export function buildTimelineGraph(tl: Timeline, target: GraphTarget, sources: S
       const sc = l.scale ?? 1;
       const lw = Math.max(2, Math.round((w * sc) / 2) * 2);
       const lh = Math.max(2, Math.round((h * sc) / 2) * 2);
-      parts.push(`[${o}:v]setpts=PTS-STARTPTS${shift},scale=${lw}:${lh},format=yuva420p[ly${n}]`);
-      parts.push(`${videoOut}[ly${n}]overlay=${Math.round(l.x ?? 0)}:${Math.round(l.y ?? 0)}:eof_action=pass:format=auto${enable}[lo${n}]`);
+      const X = Math.round(l.x ?? 0);
+      const Y = Math.round(l.y ?? 0);
+      const end = l.durationSec !== undefined ? st + l.durationSec : undefined;
+      // Motion progress (0→1) in program time t: p = entry progress, q = exit progress.
+      const p = l.enter ? `clip((t-${num(st)})/${num(l.enter.durationSec)},0,1)` : "1";
+      const q = l.exit && end !== undefined ? `clip((t-${num(end - l.exit.durationSec)})/${num(l.exit.durationSec)},0,1)` : "0";
+      let fx = `${X}`;
+      let fy = `${Y}`;
+      const off = (m: LayerMotion | undefined, prog: string) => {
+        // Off-frame start/end position for a slide; "slide-left" moves leftwards (enters from the right, exits to the left).
+        if (!m || m.type === "scale") return;
+        const into = prog === p;
+        const ox = m.type === "slide-left" ? (into ? "W" : "-w") : m.type === "slide-right" ? (into ? "-w" : "W") : undefined;
+        const oy = m.type === "slide-up" ? (into ? "H" : "-h") : m.type === "slide-down" ? (into ? "-h" : "H") : undefined;
+        const k = into ? `(1-${prog})` : prog;
+        if (ox) fx += `+(${ox}-${X})*${k}`;
+        if (oy) fy += `+(${oy}-${Y})*${k}`;
+      };
+      off(l.enter, p);
+      off(l.exit, q);
+      const scaling = l.enter?.type === "scale" || l.exit?.type === "scale";
+      let geom = `scale=${lw}:${lh}`;
+      if (scaling) {
+        const f = `max(0.01,${l.enter?.type === "scale" ? p : "1"}*(1-${l.exit?.type === "scale" ? q : "0"}))`;
+        geom = `scale=w='max(2,trunc(${lw}*${f}/2)*2)':h='max(2,trunc(${lh}*${f}/2)*2)':eval=frame`;
+        // Keep the layer centred on its final box while it grows/shrinks.
+        fx += `+(${lw}-w)/2`;
+        fy += `+(${lh}-h)/2`;
+      }
+      let alpha = "";
+      if (l.fadeInSec) alpha += `,fade=t=in:st=${num(st)}:d=${num(l.fadeInSec)}:alpha=1`;
+      if (l.fadeOutSec && end !== undefined) alpha += `,fade=t=out:st=${num(end - l.fadeOutSec)}:d=${num(l.fadeOutSec)}:alpha=1`;
+      parts.push(`[${o}:v]setpts=PTS-STARTPTS${shift},${geom},format=yuva420p${alpha}[ly${n}]`);
+      const moving = l.enter || l.exit;
+      const pos = moving ? `x='${fx}':y='${fy}':eval=frame` : `${X}:${Y}`;
+      parts.push(`${videoOut}[ly${n}]overlay=${pos}:eof_action=pass:format=auto${enable}[lo${n}]`);
       videoOut = `[lo${n}]`;
     });
     parts.push(`${videoOut}format=yuv420p[vout]`);

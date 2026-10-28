@@ -16,6 +16,21 @@ export interface Clip {
   startSec?: number;
   /** Transition from the previous clip of the same (video/audio) track into this one; the two overlap by `durationSec`. */
   transition?: Transition;
+  /** Audio fade in/out of this clip (seconds from its own start/end), with an optional curve (default linear). */
+  audioFade?: AudioFade;
+}
+
+/** Audio fade curves (ffmpeg afade/acrossfade curve in parentheses). */
+export const AUDIO_CURVES = ["linear", "exponential", "log", "s-curve", "equal-power"] as const;
+export type AudioCurve = (typeof AUDIO_CURVES)[number];
+/** Audio curve → ffmpeg afade/acrossfade curve name. */
+export const AFADE_CURVE: Record<AudioCurve, string> = {
+  linear: "tri", exponential: "exp", log: "log", "s-curve": "hsin", "equal-power": "qsin",
+};
+export interface AudioFade {
+  inSec?: number;
+  outSec?: number;
+  curve?: AudioCurve;
 }
 
 export const TRANSITION_TYPES = ["crossfade", "dissolve", "fadeblack", "fadewhite", "wipeleft", "wiperight", "slideleft", "slideright"] as const;
@@ -25,6 +40,8 @@ export const AUDIO_TRANSITIONS: readonly TransitionType[] = ["crossfade", "disso
 export interface Transition {
   type: TransitionType;
   durationSec: number;
+  /** Audio curve for the crossfade, applied to both sides (default linear). Video is unaffected. */
+  curve?: AudioCurve;
 }
 
 /** A clip resolved to its absolute position on the track. */
@@ -100,6 +117,13 @@ export function validateClip(c: Clip): string[] {
   if (!c.src) errs.push(`clip ${c.id}: src is required`);
   if (c.in < 0) errs.push(`clip ${c.id}: in < 0`);
   if (c.out <= c.in) errs.push(`clip ${c.id}: out must be > in`);
+  if (c.transition?.curve && !AUDIO_CURVES.includes(c.transition.curve)) errs.push(`clip ${c.id}: unknown transition curve ${c.transition.curve}`);
+  if (c.audioFade) {
+    const { inSec = 0, outSec = 0, curve } = c.audioFade;
+    if (inSec < 0 || outSec < 0) errs.push(`clip ${c.id}: audioFade lengths must be >= 0`);
+    else if (inSec + outSec > clipDuration(c) + 1e-6) errs.push(`clip ${c.id}: audioFade in+out (${inSec + outSec}s) is longer than the clip (${clipDuration(c)}s)`);
+    if (curve && !AUDIO_CURVES.includes(curve)) errs.push(`clip ${c.id}: unknown audioFade curve ${curve}`);
+  }
   return errs;
 }
 
