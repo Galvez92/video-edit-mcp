@@ -9,14 +9,26 @@ export interface RunResult {
   stderr: string;
 }
 
-/** Spawn a binary without a shell; resolves with exit code and captured output. */
-export function run(bin: string, args: string[], timeoutMs = 120_000): Promise<RunResult> {
+/**
+ * Spawn a binary without a shell; resolves with exit code and captured output.
+ * `onStdout` receives raw stdout chunks as they arrive (used for ffmpeg progress).
+ */
+export function run(
+  bin: string,
+  args: string[],
+  timeoutMs = 120_000,
+  onStdout?: (chunk: string) => void,
+): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
-    child.stdout.on("data", (d) => (stdout += d));
+    child.stdout.on("data", (d) => {
+      const text = String(d);
+      stdout += text;
+      onStdout?.(text);
+    });
     child.stderr.on("data", (d) => (stderr += d));
     child.on("error", (err) => {
       clearTimeout(timer);
@@ -31,6 +43,77 @@ export function run(bin: string, args: string[], timeoutMs = 120_000): Promise<R
 
 export const ffmpeg = (args: string[], timeoutMs?: number) => run(FFMPEG, ["-hide_banner", ...args], timeoutMs);
 export const ffprobe = (args: string[], timeoutMs?: number) => run(FFPROBE, ["-hide_banner", ...args], timeoutMs);
+
+export interface ProgressUpdate {
+  /** Seconds of output produced so far. */
+  outTimeSec: number;
+  frame?: number;
+  fps?: number;
+  speed?: string;
+  done: boolean;
+}
+
+/** `out_time` is a `HH:MM:SS.micro` timestamp; `out_time_us`/`out_time_ms` are microseconds. */
+function toSeconds(fields: Record<string, string>): number {
+  if (fields.out_time_us) return Number(fields.out_time_us) / 1e6;
+  if (fields.out_time_ms) return Number(fields.out_time_ms) / 1e6;
+  const stamp = /(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(fields.out_time ?? "");
+  if (stamp) return Number(stamp[1]) * 3600 + Number(stamp[2]) * 60 + Number(stamp[3]);
+  const n = Number(fields.out_time ?? "");
+  return Number.isFinite(n) ? n : 0;
+}
+
+function toUpdate(fields: Record<string, string>): ProgressUpdate {
+  const num = (v?: string) => {
+    const n = Number(v);
+    return v === undefined || Number.isNaN(n) ? undefined : n;
+  };
+  return {
+    outTimeSec: toSeconds(fields),
+    frame: num(fields.frame),
+    fps: num(fields.fps),
+    speed: fields.speed,
+    done: fields.progress === "end",
+  };
+}
+
+/**
+ * Incremental parser for `ffmpeg -progress pipe:1` output: blocks of `key=value`
+ * lines ending with `progress=continue|end`. Chunks may split lines anywhere.
+ */
+export function createProgressParser(onUpdate: (update: ProgressUpdate) => void): (chunk: string) => void {
+  let buffer = "";
+  let fields: Record<string, string> = {};
+  return (chunk: string): void => {
+    buffer += chunk;
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const eq = line.indexOf("=");
+      if (eq <= 0) continue;
+      const key = line.slice(0, eq).trim();
+      fields[key] = line.slice(eq + 1).trim();
+      if (key === "progress") {
+        onUpdate(toUpdate(fields));
+        fields = {};
+      }
+    }
+  };
+}
+
+/**
+ * Run ffmpeg with `-progress pipe:1` and report progress as it is produced.
+ * Progress uses stdout, so this is only for runs that write their output to a file.
+ */
+export function ffmpegWithProgress(
+  args: string[],
+  onProgress?: (update: ProgressUpdate) => void,
+  timeoutMs = 120_000,
+): Promise<RunResult> {
+  if (!onProgress) return ffmpeg(args, timeoutMs);
+  const parse = createProgressParser(onProgress);
+  return run(FFMPEG, ["-hide_banner", "-nostats", "-progress", "pipe:1", ...args], timeoutMs, parse);
+}
 
 export interface BinaryStatus {
   available: boolean;
