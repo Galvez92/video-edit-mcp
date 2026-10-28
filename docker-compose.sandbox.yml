@@ -1,4 +1,4 @@
-# Base44 sandbox environment for video-edit-mcp.
+# Dev sandbox environment for video-edit-mcp.
 # Runs the MCP server from the cloned source (live reload via tsx watch), never from a prebuilt image.
 # Host port 3000 -> container 3333 (Streamable HTTP transport, endpoint /mcp).
 # No secrets: everything is local, ffmpeg/ffprobe come with the runtime image.
@@ -8,12 +8,12 @@ services:
   mcp:
     build:
       context: .
-      dockerfile: .base44/Dockerfile
+      dockerfile: .sandbox/Dockerfile
     working_dir: /app
     labels:
-      base44.project: "video-edit-mcp"
-      base44.kind: "api"
-      base44.port: "3000"
+      sandbox.project: "video-edit-mcp"
+      sandbox.kind: "api"
+      sandbox.port: "3000"
     ports:
       - "3000:3333"
     volumes:

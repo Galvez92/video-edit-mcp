@@ -1,0 +1,6 @@
+{
+  "previewPort": 3000,
+  "healthPath": "/mcp",
+  "startCommand": "docker compose -f docker-compose.sandbox.yml up -d",
+  "secrets": []
+}

@@ -26,3 +26,9 @@ Formato: `## YYYY-MM-DD — rama — resumen` + detalles (qué, tests, pendiente
 - Tests vitest nuevos: `edit.test.ts` (happy + errores, duración ≈ suma, sin audio, protección de sobrescritura, progreso), `ffmpeg.test.ts` (parser), `timeline.test.ts` (validateTimeline). Verdes junto a lint, typecheck y build.
 - Verificado además contra el servidor HTTP en marcha: `health`, `trim` 0.5–1.5 s → 1.0 s, `concat` de dos geometrías → 3.03 s y rango inválido → `isError`.
 - Pendiente en la rama: `cut.assemble` desde un `Timeline`. Sin releases ni fusión a `main`.
+
+## 2026-10-28 — chore/remove-vendor-sandbox-config — config de sandbox genérica
+- Config de sandbox del proveedor renombrada a `.sandbox/` y `docker-compose.sandbox.yml`; labels del compose pasan a `sandbox.*`. Se conserva porque es el entorno de desarrollo en contenedor (Node 22 + ffmpeg, live reload, puerto 3000).
+- AGENTS.md (sección "Dev sandbox") y ficha feat-core-ffmpeg reescritas sin nombre de proveedor. Sin menciones al proveedor en archivos versionados.
+- Ramas redundantes archivadas como tags `archive/core-ffmpeg-wrapper`, `archive/docs/hyperframes-engine`, `archive/<rama de setup del sandbox>` y borradas del remoto (OK del owner).
+- Ojo: la herramienta de build externa puede depender de la ruta antigua; revisar antes de fusionar.
