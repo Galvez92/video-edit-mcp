@@ -5,7 +5,7 @@ describe("server", () => {
   it("lists exactly the implemented tools", async () => {
     const client = await connectClient();
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(["concat", "cut", "health", "probe", "trim"]);
+    expect(tools.map((t) => t.name).sort()).toEqual(["compose", "concat", "cut", "export.package", "health", "probe", "render", "trim"]);
     await client.close();
   });
 

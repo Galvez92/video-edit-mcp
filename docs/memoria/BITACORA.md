@@ -26,3 +26,9 @@ Formato: `## YYYY-MM-DD — rama — resumen` + detalles (qué, tests, pendiente
 - Tests vitest nuevos: `edit.test.ts` (happy + errores, duración ≈ suma, sin audio, protección de sobrescritura, progreso), `ffmpeg.test.ts` (parser), `timeline.test.ts` (validateTimeline). Verdes junto a lint, typecheck y build.
 - Verificado además contra el servidor HTTP en marcha: `health`, `trim` 0.5–1.5 s → 1.0 s, `concat` de dos geometrías → 3.03 s y rango inválido → `isError`.
 - Pendiente en la rama: `cut.assemble` desde un `Timeline`. Sin releases ni fusión a `main`.
+
+## 2026-10-27 — feat/render-export — presets de encode, export.package y compose opcional
+- `core/render.ts`: presets `web-1080p`, `vertical-9x16`, `square` (H.264+AAC, fit-and-pad, 30 fps) y `audio-only` (AAC .m4a); `measureLoudness()` con pasada de análisis `loudnorm` (sin valores fijos); `exportPackage()` → ZIP con media, `captions.srt` opcional, `spec.json` medido con ffprobe y `checksums.sha256`.
+- `core/zip.ts`: escritor ZIP sin dependencias (`node:zlib` deflate + crc32).
+- `core/compose.ts`: import perezoso de `@hyperframes/producer`; si falta, "unavailable".
+- Tools MCP: `render`, `export.package`, `compose`. Tests en `tests/render.test.ts` con fixtures generados por ffmpeg. Base: origin/main 60d4d2f. PR en draft, sin fusión.

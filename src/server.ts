@@ -4,6 +4,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { concat, cut, trim, type OnProgress } from "./core/edit.js";
 import { health, probe } from "./core/ffmpeg.js";
+import { compose } from "./core/compose.js";
+import { exportPackage, PRESET_NAMES, render } from "./core/render.js";
 
 export const SERVER_NAME = "video-edit-mcp";
 export const SERVER_VERSION = "0.1.0";
@@ -112,6 +114,71 @@ export function createServer(): McpServer {
     async (args, extra) => {
       try {
         return json(await concat({ ...args, onProgress: reporter(extra) }));
+      } catch (err) {
+        return fail(message(err));
+      }
+    },
+  );
+
+  server.registerTool(
+    "render",
+    {
+      description:
+        "Encode a file with a fixed delivery preset: web-1080p (16:9), vertical-9x16, square (H.264+AAC, fit-and-pad) or audio-only (AAC .m4a).",
+      inputSchema: {
+        input: z.string().min(1).describe("Source media path"),
+        preset: z.enum(PRESET_NAMES).describe("Encode preset"),
+        output: z.string().min(1).describe("Output file path (.mp4 for video presets, .m4a for audio-only)"),
+        overwrite: z.boolean().optional().describe("Replace the output file if it already exists (default false)"),
+      },
+    },
+    async (args, extra) => {
+      try {
+        return json(await render({ ...args, onProgress: reporter(extra) }));
+      } catch (err) {
+        return fail(message(err));
+      }
+    },
+  );
+
+  server.registerTool(
+    "export.package",
+    {
+      description:
+        "Build a delivery ZIP: the media file, optional captions.srt, spec.json (measured duration, resolution, fps, codecs, EBU R128 loudness, preset) and checksums.sha256.",
+      inputSchema: {
+        video: z.string().min(1).describe("Rendered media file to deliver"),
+        output: z.string().min(1).describe("Output .zip path"),
+        subtitles: z.string().min(1).optional().describe("Optional .srt file, stored as captions.srt"),
+        preset: z.string().optional().describe("Preset name recorded in spec.json"),
+        overwrite: z.boolean().optional().describe("Replace the output file if it already exists (default false)"),
+      },
+    },
+    async (args) => {
+      try {
+        return json(await exportPackage(args));
+      } catch (err) {
+        return fail(message(err));
+      }
+    },
+  );
+
+  server.registerTool(
+    "compose",
+    {
+      description:
+        "Render a HyperFrames composition (HTML) to video. Needs the optional peer @hyperframes/producer and headless Chrome; returns an 'unavailable' error otherwise.",
+      inputSchema: {
+        composition: z.string().min(1).describe("Path to the HyperFrames composition HTML"),
+        output: z.string().min(1).describe("Output video path"),
+        width: z.number().int().positive().optional(),
+        height: z.number().int().positive().optional(),
+        fps: z.number().positive().optional(),
+      },
+    },
+    async (args) => {
+      try {
+        return json(await compose(args));
       } catch (err) {
         return fail(message(err));
       }
