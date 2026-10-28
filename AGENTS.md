@@ -46,6 +46,12 @@ node dist/index.js --http --port 3333   # Streamable HTTP on /mcp
 - **Tests required** for every new tool (happy path + error path) using synthetic or verified-license media only.
 - **No releases, npm publish, or MCP registry submission** without explicit owner approval.
 
+## Base44 sandbox (dev preview)
+- `docker-compose.base44.yml` runs the MCP server from the cloned source: `npm ci` at container start plus `tsx watch` (live reload), published on host port 3000 → container 3333. It is sandbox-only tooling; it does not change app behaviour.
+- Nothing else to configure: no secrets, no external services, no database. `.base44/Dockerfile` (sandbox-only, no source baked in) adds ffmpeg/ffprobe on top of `node:22`, so `health` reports both as available.
+- The preview iframe shows the MCP endpoint: `GET /` answers 405 by design, the entry point is `POST http://localhost:3000/mcp`.
+- Run every check inside the container: `docker compose -f docker-compose.base44.yml exec -T mcp npm run lint|typecheck|test|build`. Tests generate their own synthetic fixtures; `npm run fixtures` writes them to `tests/fixtures` (git-ignored).
+
 ## Memory (update every time)
 - `docs/memoria/BITACORA.md` — single append-only log. Add a dated entry (YYYY-MM-DD) per merged change: what, branch, tests.
 - `docs/memoria/ramas/<branch>.md` — one ficha per branch. Update its **Status** (pending → in-progress → review → merged) and notes. Do not create other copies.

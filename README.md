@@ -4,7 +4,7 @@
 
 An open-source [Model Context Protocol](https://modelcontextprotocol.io) server that lets any assistant edit video locally with ffmpeg.
 
-> Status: early. `main` ships `health` and `probe`; editing tools are on the roadmap.
+> Status: early. `main` ships `health` and `probe`; `trim`, `cut` and `concat` are landing from `feat/core-ffmpeg`.
 
 ## Quick start
 Requirements: Node 20+, ffmpeg + ffprobe on `PATH`.
@@ -25,6 +25,9 @@ MCP client config (stdio):
 |---|---|
 | `health` | ffmpeg / ffprobe availability and versions |
 | `probe` | Container, duration and stream info of a local file |
+| `trim` | Keep one range of a file; stream copy when keyframe-safe, re-encode otherwise |
+| `cut` | Keep several ranges of one file and join them in order |
+| `concat` | Join files into one, normalizing resolution/fps/audio |
 
 ## Roadmap
 1. Cut / trim / concat / assemble timeline
