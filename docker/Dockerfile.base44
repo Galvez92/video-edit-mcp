@@ -1,0 +1,10 @@
+# Base44 development image: a plain Node runtime plus the system binaries this
+# project spawns. No application source is copied — the repo is bind-mounted at
+# /app and dependencies are installed at container startup, so edits apply live.
+FROM node:22
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app

@@ -58,3 +58,11 @@ node dist/index.js --http --port 3333   # Streamable HTTP on /mcp
 ## Memory (update every time)
 - `docs/memoria/BITACORA.md` — single append-only log. Add a dated entry (YYYY-MM-DD) per merged change: what, branch, tests.
 - `docs/memoria/ramas/<branch>.md` — one ficha per branch. Update its **Status** (pending → in-progress → review → merged) and notes. Do not create other copies.
+
+## Dev environment (sandbox)
+- `docker-compose.base44.yml` runs the server from this checkout in one service, `mcp`: `npm ci` then `tsx watch src/index.ts --http --port 3000 --host 0.0.0.0`, on `docker/Dockerfile.base44` (plain `node:22` + ffmpeg, no source baked in). The repo is bind-mounted at `/app` and dependencies live in the `node_modules` volume, so edits apply without a rebuild.
+- `GET /` serves a small index page (also the compose healthcheck); MCP itself is `POST /mcp`.
+- The sandbox host has no Node/ffmpeg of its own — run every check in that container:
+  `docker compose -f docker-compose.base44.yml exec -T mcp npm run lint` (same for `typecheck`, `test`, `build`). Re-run `up -d` only when the image or `package-lock.json` changes.
+- No secrets are required; everything runs offline/local.
+- The image ships no Whisper backend (optional by design): build lint/test green either way, the `transcribe` end-to-end test only runs with `VEM_WHISPER_TESTS=1` plus an installed backend and model, and otherwise skips as "por revisar". It was verified with `pip3 install whisper-ctranslate2` inside the running container (ad hoc, not part of the image; a recreated container loses it). Backend install hints, env vars (`VEM_WHISPER_*`) and the stub used by the tests are documented in `docs/memoria/ramas/feat-transcribe.md`.
