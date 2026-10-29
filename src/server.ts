@@ -14,6 +14,13 @@ import { AUDIO_CURVES, TRANSITION_TYPES } from "./core/timeline.js";
 import { LAYER_MOTIONS } from "./core/timelineRender.js";
 import { exportPackage, PRESET_NAMES, render } from "./core/render.js";
 
+const captionSegmentSchema = z.object({
+  start: z.number(),
+  end: z.number(),
+  text: z.string(),
+  words: z.array(z.object({ start: z.number(), end: z.number(), text: z.string() })).optional(),
+});
+
 const clipSchema = z.object({
   id: z.string().min(1),
   src: z.string().min(1),
@@ -157,7 +164,7 @@ export function createServer(): McpServer {
     "render",
     {
       description:
-        "Encode a file or assemble a timeline with a fixed delivery preset: web-1080p (16:9), vertical-9x16, square (H.264+AAC, fit-and-pad) or audio-only (AAC .m4a). Optional alpha overlay / HyperFrames layers on top (timed, stacked by zIndex, positioned and sized keeping their aspect; off-frame layers are clamped and reported in warnings). Returns measured width/height/fps/codecs/bytes.",
+        "Encode a file or assemble a timeline with a fixed delivery preset: web-1080p (16:9), vertical-9x16, square (H.264+AAC, fit-and-pad) or audio-only (AAC .m4a). Optional alpha overlay / HyperFrames layers on top (timed, stacked by zIndex, positioned and sized keeping their aspect; off-frame layers are clamped and reported in warnings). Optional captions (SRT/VTT/cues/transcript) burned in after composition with HyperFrames or the ffmpeg fallback. Returns measured width/height/fps/codecs/bytes.",
       inputSchema: {
         input: z.string().min(1).optional().describe("Source media path (or pass timeline)"),
         timeline: timelineSchema.optional().describe("Timeline: first video track is the program (clips trimmed by in/out, placed by startSec or back-to-back, joined by transitions); audio tracks are mixed under it"),
@@ -188,6 +195,26 @@ export function createServer(): McpServer {
           )
           .optional()
           .describe("Several layers (exactly one of overlay/hyperframes each), composited bottom to top; combinable with the legacy overlay/hyperframes params (those become the first layer)"),
+        captions: z
+          .object({
+            srt: z.string().min(1).optional().describe("Path to an .srt file (a .vtt path is detected and parsed as WebVTT)"),
+            vtt: z.string().min(1).optional().describe("Path to a WebVTT file"),
+            cues: z
+              .array(z.object({ start: z.number().min(0), end: z.number().positive(), text: z.string().optional(), lines: z.array(z.string()).optional() }))
+              .optional()
+              .describe("Inline cues in program seconds; text (newlines split lines) or pre-wrapped lines"),
+            transcript: z
+              .union([z.array(captionSegmentSchema), z.object({ segments: z.array(captionSegmentSchema) }).passthrough(), z.string().min(1)])
+              .optional()
+              .describe("Transcription segments, the transcribe tool's output object, or a path to a JSON file of either"),
+            style: z.enum(["plain", "karaoke", "pop", "box"]).optional().describe('Caption style (default "plain"); karaoke needs word timings'),
+            maxCharsPerLine: z.number().int().min(8).optional().describe("Transcript wrapping limit per line (default 42)"),
+            maxLines: z.number().int().min(1).optional().describe("Transcript lines per caption chunk (default 2)"),
+            engine: z.enum(["auto", "hyperframes", "ffmpeg"]).optional().describe('Burn-in engine: auto (default) = HyperFrames when installed, else ffmpeg/libass'),
+            srtOutput: z.string().min(1).optional().describe("Where to write the SRT of the burned cues (default: output path with .srt)"),
+          })
+          .optional()
+          .describe("Captions burned in after composition (times are program seconds). Exactly one of srt/vtt/cues/transcript. Video presets only. The SRT used is written next to the output and picked up by export.package"),
         preset: z.enum(PRESET_NAMES).describe("Encode preset"),
         output: z.string().min(1).describe("Output file path (.mp4 for video presets, .m4a for audio-only)"),
         overwrite: z.boolean().optional().describe("Replace the output file if it already exists (default false)"),
@@ -210,7 +237,8 @@ export function createServer(): McpServer {
       inputSchema: {
         video: z.string().min(1).describe("Rendered media file to deliver"),
         output: z.string().min(1).describe("Output .zip path"),
-        subtitles: z.string().min(1).optional().describe("Optional .srt file, stored as captions.srt"),
+        subtitles: z.string().min(1).optional().describe("Optional .srt file, stored as captions.srt (default: the render's sidecar <video>.srt, if present)"),
+        sidecarCaptions: z.boolean().optional().describe("When subtitles is omitted, include the sidecar <video>.srt written by render captions (default true)"),
         preset: z.string().optional().describe("Preset name recorded in spec.json"),
         overwrite: z.boolean().optional().describe("Replace the output file if it already exists (default false)"),
       },

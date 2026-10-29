@@ -36,6 +36,8 @@ export interface RenderCaptionsInput {
   height?: number;
   fps?: number;
   overwrite?: boolean;
+  /** Replaces the default video encode args (`-c:v libx264 -pix_fmt yuv420p`), e.g. a delivery preset's. */
+  videoEncodeArgs?: string[];
 }
 
 export interface RenderCaptionsResult {
@@ -114,10 +116,7 @@ async function burnInWithAss(input: RenderCaptionsInput, size: Size, workDir: st
     "0:a?",
     "-vf",
     `ass=${escapeFilterPath(assPath)}`,
-    "-c:v",
-    "libx264",
-    "-pix_fmt",
-    "yuv420p",
+    ...(input.videoEncodeArgs ?? ["-c:v", "libx264", "-pix_fmt", "yuv420p"]),
     "-c:a",
     "copy",
   ];
@@ -153,10 +152,7 @@ async function composeWithHyperFrames(
     "[outv]",
     "-map",
     "0:a?",
-    "-c:v",
-    "libx264",
-    "-pix_fmt",
-    "yuv420p",
+    ...(input.videoEncodeArgs ?? ["-c:v", "libx264", "-pix_fmt", "yuv420p"]),
     "-c:a",
     "copy",
   ];

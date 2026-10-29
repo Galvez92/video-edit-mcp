@@ -8,6 +8,10 @@ import { buildTimelineGraph, orderLayers, type GraphLayer, type SourceInfo } fro
 import { inspect, type OnProgress } from "./edit.js";
 import { ffmpeg, ffmpegWithProgress, probe, type ProbeResult } from "./ffmpeg.js";
 import { buildZip } from "./zip.js";
+import { renderCaptions, type CaptionEngine } from "./caption-render.js";
+import { loadCues, type CueSource } from "./caption-source.js";
+import { loadProducer } from "./hyperframes.js";
+import { formatSrt, type SubtitleCue } from "./subtitles.js";
 
 export interface VideoPreset {
   kind: "video";
@@ -54,9 +58,29 @@ export interface RenderRequest {
   layerDurationSec?: number;
   /** Several layers composited bottom → top (zIndex, then array order). Each has exactly one of overlay/hyperframes. */
   layers?: RenderLayer[];
+  /** Captions burned in after composition (program time). Video presets only. */
+  captions?: RenderCaptions;
   overwrite?: boolean;
   onProgress?: OnProgress;
 }
+
+export interface RenderCaptions extends CueSource {
+  /** `auto` (default): HyperFrames when the optional peer is installed, else the ffmpeg/libass fallback. */
+  engine?: CaptionEngine | "auto";
+  /** Where to write the SRT of the cues actually burned in. Default: the output path with `.srt`. */
+  srtOutput?: string;
+}
+
+export interface RenderCaptionsInfo {
+  engine: CaptionEngine;
+  cues: number;
+  style: string;
+  /** SRT of the burned-in cues; `export.package` picks it up as captions.srt. */
+  srt: string;
+}
+
+/** Default sidecar SRT path for a rendered file: same name, `.srt`. */
+export const sidecarSrt = (output: string): string => output.slice(0, output.length - extname(output).length) + ".srt";
 
 export interface RenderLayer extends Omit<GraphLayer, "src"> {
   /** Alpha video file. */
@@ -79,6 +103,8 @@ export interface RenderResult {
   videoCodec?: string;
   audioCodec?: string;
   bytes?: number;
+  /** Present when captions were burned in. */
+  captions?: RenderCaptionsInfo;
   /** Non-fatal notes, e.g. a layer clamped into the frame. Empty when nothing was adjusted. */
   warnings: string[];
 }
@@ -112,6 +138,14 @@ export async function render(req: RenderRequest): Promise<RenderResult> {
     if (l.hyperframes && !existsSync(l.hyperframes)) throw new Error(`hyperframes composition not found: ${l.hyperframes}`);
   });
   guardOutput(req.output, req.overwrite);
+  let cues: SubtitleCue[] | undefined;
+  if (req.captions) {
+    if (preset.kind !== "video") throw new Error("captions need a video preset");
+    cues = await loadCues(req.captions);
+    const srtPath = req.captions.srtOutput ?? sidecarSrt(req.output);
+    if (srtPath === req.output) throw new Error("captions.srtOutput must differ from output");
+    guardOutput(srtPath, req.overwrite);
+  }
   // Validate layer timing/animation up front (before any HyperFrames compose).
   orderLayers(reqLayers.map((l) => ({ ...l, src: "" })));
 
@@ -143,6 +177,7 @@ export async function render(req: RenderRequest): Promise<RenderResult> {
 
   let tmp: string | undefined;
   let warnings: string[] | undefined;
+  let captionsInfo: RenderCaptionsInfo | undefined;
   try {
     const layers: GraphLayer[] = [];
     for (const [i, l] of reqLayers.entries()) {
@@ -162,10 +197,47 @@ export async function render(req: RenderRequest): Promise<RenderResult> {
     for (const m of g.maps) args.push("-map", m);
     if (preset.kind === "video") args.push(...videoEncodeArgs(preset), ...audioEncodeArgs(preset.audioBitrate));
     else args.push(...audioEncodeArgs(preset.audioBitrate));
-    args.push("-t", String(g.durationSec), "-movflags", "+faststart", req.output);
+    // With captions, the composed program goes to a temp file and the burn-in pass writes the output.
+    let program = req.output;
+    if (cues) {
+      tmp ??= mkdtempSync(join(tmpdir(), "vem-hf-"));
+      program = join(tmp, "program.mp4");
+    }
+    args.push("-t", String(g.durationSec), "-movflags", "+faststart", program);
     const total = g.durationSec;
     const r = await ffmpegWithProgress(args, req.onProgress && ((u) => req.onProgress?.(u, total)), 600_000);
     if (r.code !== 0) throw new Error(`ffmpeg render failed: ${r.stderr.trim().split("\n").slice(-3).join(" | ")}`);
+    if (cues && req.captions && preset.kind === "video") {
+      const burn = (engine: CaptionEngine) =>
+        renderCaptions({
+          input: program, output: req.output, engine, style: req.captions!.style, cues,
+          width: preset.width, height: preset.height, fps: preset.fps, overwrite: true,
+          videoEncodeArgs: [...videoEncodeArgs(preset), "-movflags", "+faststart"],
+        });
+      let engine: CaptionEngine;
+      if (req.captions.engine === "hyperframes" || req.captions.engine === "ffmpeg") {
+        engine = req.captions.engine;
+        await burn(engine);
+      } else if ((await loadProducer()) === null) {
+        engine = "ffmpeg";
+        warnings.push("captions: HyperFrames engine unavailable, burned in with the ffmpeg (libass) fallback");
+        await burn(engine);
+      } else {
+        // The peer can be installed without a launchable browser: fall back instead of failing.
+        try {
+          engine = "hyperframes";
+          await burn(engine);
+        } catch (err) {
+          engine = "ffmpeg";
+          const reason = (err as Error).message.split("\n")[0]!.slice(0, 200);
+          warnings.push(`captions: HyperFrames render failed (${reason}), burned in with the ffmpeg (libass) fallback`);
+          await burn(engine);
+        }
+      }
+      const srt = req.captions.srtOutput ?? sidecarSrt(req.output);
+      writeFileSync(srt, formatSrt(cues), "utf8");
+      captionsInfo = { engine, cues: cues.length, style: req.captions.style ?? "plain", srt };
+    }
   } finally {
     if (tmp) rmSync(tmp, { recursive: true, force: true });
   }
@@ -177,6 +249,7 @@ export async function render(req: RenderRequest): Promise<RenderResult> {
     ...(req.overlay || req.hyperframes ? { overlay: req.hyperframes ? "hyperframes" : req.overlay } : {}),
     ...(reqLayers.length ? { layers: reqLayers.length } : {}),
     width: ov?.width, height: ov?.height, fps: ov?.fps, videoCodec: ov?.codec, audioCodec: oa?.codec, bytes: out.sizeBytes,
+    ...(captionsInfo ? { captions: captionsInfo } : {}),
     warnings: warnings ?? [],
   };
 }
@@ -226,6 +299,8 @@ export interface PackageRequest {
   output: string;
   subtitles?: string;
   preset?: string;
+  /** When `subtitles` is omitted, include the render's sidecar `<video>.srt` if it exists (default true). */
+  sidecarCaptions?: boolean;
   overwrite?: boolean;
 }
 
@@ -265,6 +340,9 @@ function specFrom(probed: ProbeResult, file: string): Pick<DeliverySpec, "file" 
  */
 export async function exportPackage(req: PackageRequest): Promise<PackageResult> {
   if (!existsSync(req.video)) throw new Error(`video not found: ${req.video}`);
+  if (!req.subtitles && req.sidecarCaptions !== false && existsSync(sidecarSrt(req.video)) && sidecarSrt(req.video) !== req.video) {
+    req = { ...req, subtitles: sidecarSrt(req.video) };
+  }
   if (req.subtitles && !existsSync(req.subtitles)) throw new Error(`subtitles not found: ${req.subtitles}`);
   if (req.subtitles && extname(req.subtitles).toLowerCase() !== ".srt") throw new Error("subtitles must be an .srt file");
   guardOutput(req.output, req.overwrite);

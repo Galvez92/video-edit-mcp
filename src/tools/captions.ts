@@ -1,11 +1,12 @@
 /** Caption tools: generate SRT/ASS/composition files and burn captions onto a video. */
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { renderCaptions } from "../core/caption-render.js";
-import { buildCompositionHtml, chunkSegments, type CaptionSegment } from "../core/captions.js";
-import { formatAss, formatSrt, parseSrt, type CaptionStyleName, type SubtitleCue } from "../core/subtitles.js";
+import { loadCues } from "../core/caption-source.js";
+import { buildCompositionHtml } from "../core/captions.js";
+import { formatAss, formatSrt, type SubtitleCue } from "../core/subtitles.js";
 import { fail, json } from "./result.js";
 
 const wordSchema = z.object({
@@ -36,52 +37,6 @@ const sourceShape = {
   maxCharsPerLine: z.number().int().min(8).optional().describe("Transcript wrapping limit per line (default 42)"),
   maxLines: z.number().int().min(1).optional().describe("Transcript lines per caption chunk (default 2)"),
 };
-
-interface CueSource {
-  transcript?: CaptionSegment[] | string;
-  srt?: string;
-  style?: CaptionStyleName;
-  maxCharsPerLine?: number;
-  maxLines?: number;
-}
-
-function readTranscriptJson(raw: string): CaptionSegment[] {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const parsed = JSON.parse(raw) as any;
-  const segments = Array.isArray(parsed) ? parsed : parsed?.segments;
-  if (!Array.isArray(segments)) {
-    throw new Error("unrecognized transcript JSON: expected an array of segments or {segments:[…]}");
-  }
-  return segments.map((segment) => {
-    if (typeof segment?.start !== "number" || typeof segment?.end !== "number" || typeof segment?.text !== "string") {
-      throw new Error('unrecognized transcript segment: each entry needs numeric "start"/"end" and a "text"');
-    }
-    return segment as CaptionSegment;
-  });
-}
-
-/** Resolve the caption source: exactly one of transcript segments or an SRT path. */
-async function loadCues(source: CueSource): Promise<SubtitleCue[]> {
-  if (source.transcript !== undefined && source.srt !== undefined) {
-    throw new Error("provide either transcript or srt, not both");
-  }
-  if (source.srt !== undefined) {
-    return parseSrt(await readFile(source.srt, "utf8"));
-  }
-  if (source.transcript === undefined) {
-    throw new Error("provide transcript segments or an srt file path");
-  }
-  const segments =
-    typeof source.transcript === "string"
-      ? readTranscriptJson(await readFile(source.transcript, "utf8"))
-      : source.transcript;
-  const cues = chunkSegments(segments, {
-    maxCharsPerLine: source.maxCharsPerLine,
-    maxLines: source.maxLines,
-  });
-  if (cues.length === 0) throw new Error("no caption chunks produced from the transcript segments");
-  return cues;
-}
 
 const lastEnd = (cues: SubtitleCue[]): number => cues.reduce((max, cue) => Math.max(max, cue.end), 0);
 

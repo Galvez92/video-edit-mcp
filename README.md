@@ -32,6 +32,19 @@ MCP client config (stdio):
 ## Timeline layer sizing
 `render` layers keep their source aspect ratio: `scale` (fraction of frame width, or `scaleMode: "native"`), or `width`/`height` in px (one keeps aspect). When both `width` and `height` are given, `fit` defaults to `contain` (fit inside the box, centred); use `cover` to fill and crop, or `fit: "stretch"` explicitly to distort to the exact box. A layer with no size fills the frame. Off-frame positions are clamped and reported in `warnings`.
 
+## Captions in the final render
+`render` accepts `captions` and burns them in **after** the timeline and layers are composed (times are program seconds):
+
+```json
+{ "timeline": { ... }, "preset": "vertical-9x16", "output": "out/final.mp4",
+  "captions": { "srt": "subs.srt", "style": "box", "engine": "auto" } }
+```
+
+- Source (exactly one): `srt` (path; `.vtt` detected), `vtt` (path), `cues` (`[{start,end,text}]`), or `transcript` (segments, the `transcribe` output object, or a JSON path).
+- `style`: `plain` | `karaoke` | `pop` | `box`; `maxCharsPerLine` / `maxLines` wrap transcripts.
+- `engine`: `auto` (default: HyperFrames when the optional peer is installed, otherwise ffmpeg/libass with a warning), `hyperframes` or `ffmpeg`. The burn-in pass encodes with the preset's video settings and copies the audio.
+- The SRT actually burned is written next to the output (`final.srt`, or `srtOutput`) and reported in `captions.srt`. `export.package` includes that sidecar as `captions.srt` when `subtitles` is omitted (`sidecarCaptions: false` to skip).
+
 ## Roadmap
 1. Cut / trim / concat / assemble timeline
 2. Local transcription (Whisper) · animated captions rendered with HyperFrames (SRT/ASS export + ffmpeg fallback) · reframe 9:16/1:1/16:9 · audio mix, ducking, loudnorm −16 LUFS
