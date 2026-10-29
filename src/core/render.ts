@@ -208,18 +208,32 @@ export async function render(req: RenderRequest): Promise<RenderResult> {
     const r = await ffmpegWithProgress(args, req.onProgress && ((u) => req.onProgress?.(u, total)), 600_000);
     if (r.code !== 0) throw new Error(`ffmpeg render failed: ${r.stderr.trim().split("\n").slice(-3).join(" | ")}`);
     if (cues && req.captions && preset.kind === "video") {
+      const burn = (engine: CaptionEngine) =>
+        renderCaptions({
+          input: program, output: req.output, engine, style: req.captions!.style, cues,
+          width: preset.width, height: preset.height, fps: preset.fps, overwrite: true,
+          videoEncodeArgs: [...videoEncodeArgs(preset), "-movflags", "+faststart"],
+        });
       let engine: CaptionEngine;
-      if (req.captions.engine === "hyperframes" || req.captions.engine === "ffmpeg") engine = req.captions.engine;
-      else if ((await loadProducer()) !== null) engine = "hyperframes";
-      else {
+      if (req.captions.engine === "hyperframes" || req.captions.engine === "ffmpeg") {
+        engine = req.captions.engine;
+        await burn(engine);
+      } else if ((await loadProducer()) === null) {
         engine = "ffmpeg";
         warnings.push("captions: HyperFrames engine unavailable, burned in with the ffmpeg (libass) fallback");
+        await burn(engine);
+      } else {
+        // The peer can be installed without a launchable browser: fall back instead of failing.
+        try {
+          engine = "hyperframes";
+          await burn(engine);
+        } catch (err) {
+          engine = "ffmpeg";
+          const reason = (err as Error).message.split("\n")[0]!.slice(0, 200);
+          warnings.push(`captions: HyperFrames render failed (${reason}), burned in with the ffmpeg (libass) fallback`);
+          await burn(engine);
+        }
       }
-      await renderCaptions({
-        input: program, output: req.output, engine, style: req.captions.style, cues,
-        width: preset.width, height: preset.height, fps: preset.fps, overwrite: true,
-        videoEncodeArgs: [...videoEncodeArgs(preset), "-movflags", "+faststart"],
-      });
       const srt = req.captions.srtOutput ?? sidecarSrt(req.output);
       writeFileSync(srt, formatSrt(cues), "utf8");
       captionsInfo = { engine, cues: cues.length, style: req.captions.style ?? "plain", srt };

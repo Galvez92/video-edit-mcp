@@ -97,7 +97,7 @@ describe.skipIf(!hasFfmpeg)("render with captions (requires ffmpeg)", () => {
     expect(res.isError, res.text).toBe(false);
     const ready = await hyperframesReady();
     expect(res.data.captions?.engine).toBe(ready ? "hyperframes" : "ffmpeg");
-    if (!ready) expect(res.data.warnings.join(" ")).toMatch(/fallback/);
+    if (!ready) expect(res.data.warnings.join(" ")).toMatch(/ffmpeg \(libass\) fallback/);
     expect(existsSync(srtOutput)).toBe(true);
     expect(ymaxOf(output, 1)).toBeGreaterThan(150);
   }, 300_000);
