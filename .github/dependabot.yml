@@ -8,7 +8,16 @@ updates:
     ignore:
       - dependency-name: "@hyperframes/producer"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      # Node 22: @types/node se queda en 22.x.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+    # El cooldown de Dependabot resolvía con fecha anterior a la versión ya fijada de
+    # typescript-eslint (ETARGET 8.72.1); se exime esa familia y se agrupa junta.
+    cooldown:
+      default-days: 3
+      exclude: ["typescript-eslint", "@typescript-eslint/*"]
     groups:
+      typescript-eslint: { patterns: ["typescript-eslint", "@typescript-eslint/*"] }
       dev-deps: { dependency-type: development, update-types: [minor, patch] }
       prod-deps: { dependency-type: production, update-types: [minor, patch] }
   - package-ecosystem: github-actions
