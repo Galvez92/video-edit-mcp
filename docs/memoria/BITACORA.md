@@ -117,3 +117,8 @@ Formato: `## YYYY-MM-DD — rama — resumen` + detalles (qué, tests, pendiente
 - `render` devuelve `program {durationSec, clipsSec, overlapSec, gapSec}` (duración efectiva con solapes de transición).
 - Arreglo menor: `loadProducer()` devuelve `undefined` (no `null`); el chequeo del motor auto usa `== null`.
 - Tests `tests/loudness-stills.test.ts`. Rama **no** fusionada.
+
+## 2026-10-28 — chore/github-hardening — seguridad y flujo en GitHub
+- Repo: `delete_branch_on_merge`, `allow_auto_merge`, alertas + security updates de Dependabot, CodeQL default setup (actions, javascript-typescript), private vulnerability reporting.
+- Archivos: `dependabot.yml` agrupado semanal (hyperframes manual), `permissions: contents: read` en CI y `pull_request` solo a main, plantilla de PR, CODEOWNERS, SECURITY.md (sin auth: exponer tras proxy con token).
+- Ruleset en main tras verificar el nombre del check: `test` requerido, PR obligatorio (0 aprobaciones), sin borrado ni force-push.
