@@ -81,8 +81,8 @@ export interface LoudnessNormalization {
   before: Loudness;
   /** Measured on the delivered file. */
   after: Loudness;
-  /** `linear` (pure gain) or `dynamic` (loudnorm had to compress to respect the true-peak ceiling). */
-  mode: "linear" | "dynamic";
+  /** `linear` (pure gain via loudnorm) or `limited` (gain + 4x-oversampled true-peak limiter, because pure gain would break the ceiling). */
+  mode: "linear" | "limited";
 }
 
 /** Sidecar written next to a loudness-normalized render; `export.package` copies it into spec.json. */
@@ -355,12 +355,33 @@ export async function normalizeLoudness(input: string, output: string, target: R
   const m = lastJson(p1.stderr);
   const before: Loudness = { integratedLufs: Number(m.input_i), truePeakDbtp: Number(m.input_tp), lraLu: Number(m.input_lra), thresholdLufs: Number(m.input_thresh) };
   if (!Number.isFinite(before.integratedLufs) || before.integratedLufs < -70) throw new Error("loudness normalization: the mix is silent (nothing to normalize)");
-  const af = `loudnorm=I=${I}:TP=${TP}:LRA=${LRA}:measured_I=${m.input_i}:measured_TP=${m.input_tp}:measured_LRA=${m.input_lra}:measured_thresh=${m.input_thresh}:offset=${m.target_offset}:linear=true:print_format=json,aresample=48000`;
-  const args = ["-y", "-nostats", "-i", input, "-map", "0:v?", "-map", "0:a:0", "-c:v", "copy", "-af", af, ...audioEncodeArgs(audioBitrate), "-movflags", "+faststart", output];
-  const p2 = await ffmpeg(args, 600_000);
-  if (p2.code !== 0) throw new Error(`loudnorm pass 2 failed: ${p2.stderr.trim().split("\n").slice(-2).join(" | ")}`);
-  const mode = /dynamic/i.test(lastJson(p2.stderr).normalization_type ?? "") ? "dynamic" : "linear";
-  const after = await measureLoudness(output);
+  const encode = async (af: string) => {
+    const args = ["-y", "-nostats", "-i", input, "-map", "0:v?", "-map", "0:a:0", "-c:v", "copy", "-af", af, ...audioEncodeArgs(audioBitrate), "-movflags", "+faststart", output];
+    const p = await ffmpeg(args, 600_000);
+    if (p.code !== 0) throw new Error(`loudness pass 2 failed: ${p.stderr.trim().split("\n").slice(-2).join(" | ")}`);
+    return p;
+  };
+  const gain = I - before.integratedLufs;
+  let mode: LoudnessNormalization["mode"] = "linear";
+  let after: Loudness | undefined;
+  if (before.truePeakDbtp + gain <= TP - 0.1) {
+    // Pure gain fits under the ceiling: loudnorm linear is exact.
+    await encode(`loudnorm=I=${I}:TP=${TP}:LRA=${LRA}:measured_I=${m.input_i}:measured_TP=${m.input_tp}:measured_LRA=${m.input_lra}:measured_thresh=${m.input_thresh}:offset=${m.target_offset}:linear=true:print_format=json,aresample=48000`);
+    after = await measureLoudness(output);
+  } else {
+    // loudnorm's dynamic mode undershoots badly on short mixes; instead apply gain + an oversampled
+    // limiter and correct the gain from the measured result (limiting eats loudness) up to 3 times.
+    mode = "limited";
+    const limit = Math.pow(10, (TP - 0.5) / 20).toFixed(4);
+    let g = gain;
+    for (let i = 0; i < 3; i++) {
+      await encode(`volume=${g.toFixed(2)}dB,aresample=192000,alimiter=limit=${limit}:attack=1:release=50:level=0,aresample=48000`);
+      after = await measureLoudness(output);
+      const err = I - (after?.integratedLufs ?? I);
+      if (Math.abs(err) <= 0.5) break;
+      g += err;
+    }
+  }
   return { target, before, after: after!, mode };
 }
 

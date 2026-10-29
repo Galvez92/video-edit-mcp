@@ -56,7 +56,7 @@ Ken Burns is optional: zoom 1..4 and a focus point (0..1 of the frame) interpola
 `render` also returns `program: { durationSec, clipsSec, overlapSec, gapSec }`: the effective program length is the sum of clips minus transition overlaps plus gaps (each transition shortens the program by its `durationSec`).
 
 ## Loudness normalization
-`render` and `export.package` accept `loudness: { targetLufs?: -16, truePeakDb?: -1, lra?: 11 }`. **Off by default**; pass `{}` for the defaults. Two-pass ffmpeg `loudnorm` on the final mix (after captions): pass 1 measures, pass 2 applies the measured values (`linear` gain when the true-peak ceiling allows it, otherwise loudnorm switches to `dynamic` and the result says so). Video is stream-copied.
+`render` and `export.package` accept `loudness: { targetLufs?: -16, truePeakDb?: -1, lra?: 11 }`. **Off by default**; pass `{}` for the defaults. Two-pass ffmpeg `loudnorm` on the final mix (after captions): pass 1 measures, pass 2 applies the measured values (`linear` gain when the true-peak ceiling allows it, otherwise `limited`: gain + 4x-oversampled limiter with up to 3 measured gain corrections, because loudnorm dynamic undershoots on short mixes). Video is stream-copied.
 - `render` returns `loudness: { target, before, after, mode }` and writes `<output>.loudness.json`; `export.package` copies it into `spec.json` as `loudnessNormalization` (only while its checksum matches the file).
 - `export.package { loudness }` normalizes a copy before packaging; the source file is untouched. `spec.loudness` is always measured on the packaged file.
 

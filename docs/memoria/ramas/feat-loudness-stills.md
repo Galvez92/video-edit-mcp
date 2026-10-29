@@ -11,7 +11,7 @@ Delivery-ready audio level and still images as first-class timeline clips.
 
 ## Decisions
 - Loudness off by default (it changes the mix); defaults -16 LUFS / -1 dBTP / LRA 11 when enabled. Applied last so captions/layers do not alter it.
-- Two-pass linear loudnorm; if the peak ceiling forces compression, `mode: "dynamic"` is reported instead of hidden.
+- Two-pass linear loudnorm; if pure gain would break the true-peak ceiling, `mode: "limited"` (gain + oversampled limiter, iterated to within 0.5 LU) — loudnorm dynamic missed by 3 LU on the 7.5 s xfade trial cut.
 - Stills: `-loop 1 -framerate fps -t d`; Ken Burns with `zoompan` (d=1) on a 2x upscale to limit jitter.
 
 ## Tests
