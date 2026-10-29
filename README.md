@@ -4,30 +4,70 @@
 
 An open-source [Model Context Protocol](https://modelcontextprotocol.io) server that lets any assistant edit video locally with ffmpeg.
 
-> Status: early. `main` ships `health` and `probe`; `trim`, `cut` and `concat` are landing from `feat/core-ffmpeg`.
+Cut, trim, join, reframe, caption, mix and render video from any MCP client (Claude Desktop, Cursor, …). Everything runs on your machine: ffmpeg for cut/mix/encode, optional [HyperFrames](https://github.com/heygen-com/hyperframes) for animated captions and composition, optional local Whisper for transcription. No cloud calls, no API keys.
 
-## Quick start
-Requirements: Node 22+, ffmpeg + ffprobe on `PATH`.
+## Install
+Requirements: Node 22+, `ffmpeg` and `ffprobe` on `PATH`.
+Optional: `@hyperframes/producer` + headless Chrome (animated captions, `compose`, HTML layers; ffmpeg fallback otherwise), a Whisper CLI (`whisper.cpp` or `faster-whisper`/`whisper-ctranslate2`) for `transcribe`.
 
 ```bash
+git clone https://github.com/Galvez92/video-edit-mcp.git
+cd video-edit-mcp
 npm ci && npm run build
 node dist/index.js                     # stdio
 node dist/index.js --http --port 3333  # Streamable HTTP at http://127.0.0.1:3333/mcp
 ```
 
-MCP client config (stdio):
+## MCP client config
+**Claude Desktop** (`claude_desktop_config.json`) and **Cursor** (`~/.cursor/mcp.json` or `.cursor/mcp.json`) use the same shape:
 ```json
-{ "mcpServers": { "video-edit": { "command": "node", "args": ["/path/to/video-edit-mcp/dist/index.js"] } } }
+{
+  "mcpServers": {
+    "video-edit": {
+      "command": "node",
+      "args": ["/absolute/path/to/video-edit-mcp/dist/index.js"]
+    }
+  }
+}
 ```
+All paths passed to tools are local file paths on the machine running the server.
 
 ## Tools
-| Tool | Description |
+| Tool | What it does |
 |---|---|
-| `health` | ffmpeg / ffprobe availability and versions |
-| `probe` | Container, duration and stream info of a local file |
-| `trim` | Keep one range of a file; stream copy when keyframe-safe, re-encode otherwise |
+| `health` | ffmpeg / ffprobe / Whisper availability and versions |
+| `probe` | Container, duration, size and per-stream info of a media file |
+| `trim` | Keep one range; stream copy when keyframe-safe, re-encode otherwise |
 | `cut` | Keep several ranges of one file and join them in order |
-| `concat` | Join files into one, normalizing resolution/fps/audio |
+| `concat` | Join files into one, normalizing resolution / fps / audio |
+| `render` | Encode a file or a multi-track timeline with a preset (`web-1080p`, `vertical-9x16`, `square`, `audio-only`); transitions, stills + Ken Burns, overlay/HTML layers, burned-in captions, loudness normalization |
+| `export.package` | Delivery ZIP: media, `captions.srt`, `spec.json` (measured specs + EBU R128 loudness) and `checksums.sha256` |
+| `compose` | Render a HyperFrames HTML composition to video (optional peer) |
+| `transcribe` | Local Whisper transcription with word timestamps |
+| `captions.generate` | Transcript/SRT → SRT, ASS or animated HyperFrames captions (`plain`, `karaoke`, `pop`, `box`) |
+| `captions.render` | Burn captions into a video (HyperFrames or ffmpeg/libass), audio kept |
+| `reframe` | Reframe to 9:16, 1:1, 16:9 or 4:5: crop (focus point or subject follow), color pad or blurred pad |
+| `audio.measure` | Integrated loudness (LUFS), true peak and LRA |
+| `audio.loudnorm` | Two-pass loudness normalization (default −14 LUFS) |
+| `audio.mix` | Voice + music with sidechain ducking and fades, video stream-copied |
+
+## End-to-end example
+Ask your assistant, or call the tools directly:
+1. `probe { "path": "talk.mp4" }`
+2. `transcribe { "input": "talk.mp4", "wordTimestamps": true }` → segments
+3. `render` a 9:16 cut with burned-in captions and normalized audio:
+```json
+{ "preset": "vertical-9x16", "output": "out/final.mp4",
+  "timeline": { "width": 1080, "height": 1920, "fps": 30, "tracks": [
+    { "id": "v", "kind": "video", "clips": [
+      { "id": "a", "src": "talk.mp4", "in": 12, "out": 27 },
+      { "id": "b", "src": "talk.mp4", "in": 40, "out": 52, "transition": { "type": "crossfade", "durationSec": 0.5 } } ] },
+    { "id": "m", "kind": "audio", "clips": [
+      { "id": "music", "src": "music.m4a", "in": 0, "out": 26.5, "gainDb": -14 } ] } ] },
+  "captions": { "transcript": "talk.transcript.json", "style": "box" },
+  "loudness": {} }
+```
+4. `export.package { "video": "out/final.mp4", "output": "out/final.zip", "preset": "vertical-9x16" }` → ZIP with the video, `captions.srt`, `spec.json` and checksums.
 
 ## Timeline layer sizing
 `render` layers keep their source aspect ratio: `scale` (fraction of frame width, or `scaleMode: "native"`), or `width`/`height` in px (one keeps aspect). When both `width` and `height` are given, `fit` defaults to `contain` (fit inside the box, centred); use `cover` to fill and crop, or `fit: "stretch"` explicitly to distort to the exact box. A layer with no size fills the frame. Off-frame positions are clamped and reported in `warnings`.
@@ -61,10 +101,8 @@ Ken Burns is optional: zoom 1..4 and a focus point (0..1 of the frame) interpola
 - `export.package { loudness }` normalizes a copy before packaging; the source file is untouched. `spec.loudness` is always measured on the packaged file.
 
 ## Roadmap
-1. Cut / trim / concat / assemble timeline
-2. Local transcription (Whisper) · animated captions rendered with HyperFrames (SRT/ASS export + ffmpeg fallback) · reframe 9:16/1:1/16:9 · audio mix, ducking, loudnorm −16 LUFS
-3. HyperFrames composition (overlays, titles) + ffmpeg render presets + ZIP export (video + SRT + spec.json)
-4. EDL / OTIO import
+- EDL / OTIO import
+- Published npm package
 
 ## Development
 ```bash
