@@ -68,7 +68,7 @@ Formato: `## YYYY-MM-DD — rama — resumen` + detalles (qué, tests, pendiente
 - Tool `transcribe { input, model?, language?, wordTimestamps? }` (errores → `isError` con pista de instalación); `health` ahora incluye `whisper`.
 - Transporte HTTP: `GET /` devuelve una página índice (antes 404 `Not found`), usada también por el healthcheck del compose.
 - Tests: `tests/transcribe.test.ts` (parseadores de ambos formatos, error sin backend, error sin archivo, pipeline completo con el doble `tests/stub-whisper-cli.mjs` y fixture generado con `testsrc`/`sine`). Test end-to-end con backend real detrás de `VEM_WHISPER_TESTS=1`: ejecutado y en verde en el sandbox con `whisper-ctranslate2` 0.5.8 + modelo `base` (instalados ad hoc, fuera de la imagen) y también por HTTP (`POST /mcp`) con audio real; sin backend instalado el test se salta con aviso y queda **por revisar**. `tests/server.test.ts` actualizado a las 3 tools.
-- Entorno Base44: `docker-compose.base44.yml` + `docker/Dockerfile.base44` (node:22 + ffmpeg, código bind-mounted, `npm ci` + `tsx watch`, puerto 3000), `.base44/environment.json`, sección "Dev environment" en AGENTS.md.
+- Entorno de sandbox de desarrollo: compose + Dockerfile (node:22 + ffmpeg, código bind-mounted, `npm ci` + `tsx watch`, puerto 3000), sección "Dev environment" en AGENTS.md.
 - Verificación: `lint`, `typecheck`, `build` y `test` en verde (sin backend real: ese caso queda por revisar). Rama **no** fusionada a main.
 
 ## 2026-10-28 — feat/audio-mix (rama `local-whisper-transcription`) — mezcla de audio + loudnorm
@@ -86,7 +86,7 @@ Formato: `## YYYY-MM-DD — rama — resumen` + detalles (qué, tests, pendiente
 - Fixture `tests/fixtures/sample.srt` (texto sintético) como entrada mientras `feat/transcribe` no está en la rama.
 - Tests: `subtitles`, `captions` (chunking + composición), `captions-tool` (MCP, caminos de error) y `captions-render` (ffmpeg real, se salta sin ffmpeg); `server.test.ts` actualizado a las cuatro tools. Total 38 tests en verde, más lint, typecheck y build.
 - Verificación end-to-end por el transporte HTTP: SRT → SRT idéntico, ASS con `[Events]`, composición con 3 chunks temporizados; render con motor `ffmpeg` sobre clip sintético → h264 + aac, duración 2.00 s, y el texto realmente dibujado (clip negro: `YMAX` 16 → 238).
-- Entorno del sandbox (`docker-compose.base44.yml`, `Dockerfile.base44`, `.base44/environment.json`): ffmpeg + `tsx watch` desde el código montado, transporte HTTP en el puerto 3000.
+- Entorno del sandbox: ffmpeg + `tsx watch` desde el código montado, transporte HTTP en el puerto 3000.
 - Pendiente: el camino de render HyperFrames no se pudo ejecutar en el sandbox (peer opcional con Chrome no instalado); su test se salta.
 
 ## 2026-10-28 — feat/captions — tool MCP reframe (recorte, pad y seguimiento de sujeto)
