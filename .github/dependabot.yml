@@ -4,12 +4,15 @@ updates:
     directory: /
     schedule: { interval: weekly, day: monday, timezone: America/Mexico_City }
     open-pull-requests-limit: 5
-    # @hyperframes/producer: actualizar a mano (Reelo fija otra versión; alinear antes de subir).
+    # @hyperframes/producer: actualizar a mano (alinear la versión con los consumidores antes de subir).
     ignore:
       - dependency-name: "@hyperframes/producer"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
       # Node 22: @types/node se queda en 22.x.
       - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # TypeScript mayor (p. ej. 7.x): se migra a mano.
+      - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
     # El cooldown de Dependabot resolvía con fecha anterior a la versión ya fijada de
     # typescript-eslint (ETARGET 8.72.1); se exime esa familia y se agrupa junta.
