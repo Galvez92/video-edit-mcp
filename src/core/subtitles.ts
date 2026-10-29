@@ -69,7 +69,8 @@ export function parseSrt(text: string): SubtitleCue[] {
     const offset = /^\d+$/.test(rows[0].trim()) ? 1 : 0;
     const timing = rows[offset];
     if (timing === undefined) throw new Error(`invalid SRT block: missing timing line ("${rows[0].trim()}")`);
-    const match = /^(.*?)\s*-->\s*(.*?)(?:\s+\S.*)?$/.exec(timing.trim());
+    const arrow = timing.indexOf("--" + ">");
+    const match = arrow < 0 ? null : ["", timing.slice(0, arrow).trim(), timing.slice(arrow + 3).trim().split(/\s+/)[0] ?? ""];
     if (!match) throw new Error(`invalid SRT timing line: "${timing.trim()}"`);
     const lines = rows.slice(offset + 1);
     if (lines.length === 0) throw new Error(`SRT cue ${cues.length + 1} has no text`);
@@ -154,7 +155,7 @@ function assText(cue: SubtitleCue, style: CaptionStyleName): string {
       .join("\\N");
     return `${prefix}${text}`;
   }
-  const stripped = cue.lines.map((line) => line.replace(/<[^>]*>/g, ""));
+  const stripped = cue.lines.map(stripTags);
   return `${prefix}${stripped.map(escapeAss).join("\\N")}`;
 }
 
@@ -187,4 +188,15 @@ export function formatAss(cues: SubtitleCue[], options: AssOptions = {}): string
       `Dialogue: 0,${toAssTime(cue.start)},${toAssTime(cue.end)},Caption,,0,0,0,,${assText(cue, style)}`,
   );
   return `${[...header, ...events].join("\n")}\n`;
+}
+
+/** Remove markup tags repeatedly until stable, then drop any stray angle brackets. */
+function stripTags(line: string): string {
+  let prev: string;
+  let out = line;
+  do {
+    prev = out;
+    out = out.replace(/<[^<>]*>/g, "");
+  } while (out !== prev);
+  return out.replace(/[<>]/g, "");
 }
