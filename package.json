@@ -1,7 +1,6 @@
 {
   "name": "video-edit-mcp",
   "version": "0.1.0",
-  "private": true,
   "description": "MCP server that lets any assistant edit video: ffmpeg for cut/mix/encode, HyperFrames for captions, overlays and composition.",
   "license": "MIT",
   "type": "module",
