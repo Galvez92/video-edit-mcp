@@ -10,7 +10,7 @@ import { registerCaptionTools } from "./tools/captions.js";
 import { registerReframeTool } from "./tools/reframe.js";
 import { fail, json } from "./tools/result.js";
 import { compose } from "./core/compose.js";
-import { AUDIO_CURVES, TRANSITION_TYPES } from "./core/timeline.js";
+import { AUDIO_CURVES, isStillSrc, STILL_FITS, TRANSITION_TYPES, type Timeline } from "./core/timeline.js";
 import { LAYER_MOTIONS } from "./core/timelineRender.js";
 import { exportPackage, PRESET_NAMES, render } from "./core/render.js";
 
@@ -21,11 +21,54 @@ const captionSegmentSchema = z.object({
   words: z.array(z.object({ start: z.number(), end: z.number(), text: z.string() })).optional(),
 });
 
+const focusSchema = z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) });
+const loudnessSchema = z
+  .object({
+    targetLufs: z.number().min(-70).max(-5).optional().describe("Integrated loudness target in LUFS (default -16)"),
+    truePeakDb: z.number().min(-9).max(0).optional().describe("True-peak ceiling in dBTP (default -1)"),
+    lra: z.number().min(1).max(50).optional().describe("Loudness range target in LU (default 11)"),
+  })
+  .describe("Two-pass EBU R128 loudnorm of the final mix (pass 1 measures, pass 2 applies the measured values; linear gain when the peak ceiling allows). Off when omitted; pass {} for the defaults (-16 LUFS, -1 dBTP, LRA 11)");
+
+type ClipInput = z.infer<typeof clipSchema>;
+type TimelineInput = { width: number; height: number; fps: number; tracks: { id: string; kind: "video" | "audio" | "caption"; clips: ClipInput[] }[] };
+/** Fill in/out defaults: stills get in 0 / out durationSec; media clips must carry both. */
+function toTimeline(t: TimelineInput): Timeline {
+  return {
+    ...t,
+    tracks: t.tracks.map((tr) => ({
+      ...tr,
+      clips: tr.clips.map((c) => {
+        const still = isStillSrc(c.src);
+        if (!still && (c.in === undefined || c.out === undefined)) throw new Error(`clip ${c.id}: in and out are required for video/audio clips`);
+        const inn = c.in ?? 0;
+        return { ...c, in: inn, out: c.out ?? inn + (c.durationSec ?? 0) };
+      }),
+    })),
+  };
+}
+
 const clipSchema = z.object({
   id: z.string().min(1),
   src: z.string().min(1),
-  in: z.number().min(0),
-  out: z.number().positive(),
+  in: z.number().min(0).optional().describe("In-point in the source (s). Required for video/audio; ignored for stills (default 0)"),
+  out: z.number().positive().optional().describe("Out-point in the source (s). Required for video/audio; stills use durationSec"),
+  durationSec: z.number().positive().optional().describe("Still images (png/jpg/webp src): how long the image is shown; required for stills"),
+  still: z
+    .object({
+      fit: z.enum(STILL_FITS).optional().describe("contain (default: whole image, padded) or cover (fill the frame, crop)"),
+      kenBurns: z
+        .object({
+          zoomFrom: z.number().min(1).max(4).optional().describe("Zoom at the clip start (default 1)"),
+          zoomTo: z.number().min(1).max(4).optional().describe("Zoom at the clip end (default 1.2)"),
+          from: focusSchema.optional().describe("Focus point at the start, 0..1 of the frame (default centre)"),
+          to: focusSchema.optional().describe("Focus point at the end (default: same as from)"),
+        })
+        .optional()
+        .describe("Slow zoom/pan over the still"),
+    })
+    .optional()
+    .describe("Framing and Ken Burns motion for a still-image clip"),
   gainDb: z.number().optional(),
   startSec: z.number().min(0).optional().describe("Position on the timeline in seconds (default: right after the previous clip; gaps are black + silence)"),
   transition: z
@@ -164,7 +207,7 @@ export function createServer(): McpServer {
     "render",
     {
       description:
-        "Encode a file or assemble a timeline with a fixed delivery preset: web-1080p (16:9), vertical-9x16, square (H.264+AAC, fit-and-pad) or audio-only (AAC .m4a). Optional alpha overlay / HyperFrames layers on top (timed, stacked by zIndex, positioned and sized keeping their aspect; off-frame layers are clamped and reported in warnings). Optional captions (SRT/VTT/cues/transcript) burned in after composition with HyperFrames or the ffmpeg fallback. Returns measured width/height/fps/codecs/bytes.",
+        "Encode a file or assemble a timeline with a fixed delivery preset: web-1080p (16:9), vertical-9x16, square (H.264+AAC, fit-and-pad) or audio-only (AAC .m4a). Optional alpha overlay / HyperFrames layers on top (timed, stacked by zIndex, positioned and sized keeping their aspect; off-frame layers are clamped and reported in warnings). Optional captions (SRT/VTT/cues/transcript) burned in after composition with HyperFrames or the ffmpeg fallback. Timeline clips can be still images (png/jpg/webp, durationSec, contain/cover, Ken Burns). Optional two-pass loudness normalization of the final mix. Returns measured width/height/fps/codecs/bytes, the effective program duration (transition overlaps removed) and loudness before/after.",
       inputSchema: {
         input: z.string().min(1).optional().describe("Source media path (or pass timeline)"),
         timeline: timelineSchema.optional().describe("Timeline: first video track is the program (clips trimmed by in/out, placed by startSec or back-to-back, joined by transitions); audio tracks are mixed under it"),
@@ -215,6 +258,7 @@ export function createServer(): McpServer {
           })
           .optional()
           .describe("Captions burned in after composition (times are program seconds). Exactly one of srt/vtt/cues/transcript. Video presets only. The SRT used is written next to the output and picked up by export.package"),
+        loudness: loudnessSchema.optional(),
         preset: z.enum(PRESET_NAMES).describe("Encode preset"),
         output: z.string().min(1).describe("Output file path (.mp4 for video presets, .m4a for audio-only)"),
         overwrite: z.boolean().optional().describe("Replace the output file if it already exists (default false)"),
@@ -222,7 +266,7 @@ export function createServer(): McpServer {
     },
     async (args, extra) => {
       try {
-        return json(await render({ ...args, onProgress: reporter(extra) }));
+        return json(await render({ ...args, timeline: args.timeline && toTimeline(args.timeline), onProgress: reporter(extra) }));
       } catch (err) {
         return fail(message(err));
       }
@@ -240,6 +284,7 @@ export function createServer(): McpServer {
         subtitles: z.string().min(1).optional().describe("Optional .srt file, stored as captions.srt (default: the render's sidecar <video>.srt, if present)"),
         sidecarCaptions: z.boolean().optional().describe("When subtitles is omitted, include the sidecar <video>.srt written by render captions (default true)"),
         preset: z.string().optional().describe("Preset name recorded in spec.json"),
+        loudness: loudnessSchema.optional().describe("Normalize the media (two-pass loudnorm) before packaging; spec.json records target, before and after. Off when omitted. A render made with loudness is picked up from its .loudness.json sidecar"),
         overwrite: z.boolean().optional().describe("Replace the output file if it already exists (default false)"),
       },
     },

@@ -1,4 +1,4 @@
-import { AFADE_CURVE, clipDuration, placeClips, validateTimeline, type AudioCurve, type Clip, type Timeline, type TransitionType } from "./timeline.js";
+import { AFADE_CURVE, clipDuration, isStillSrc, placeClips, validateTimeline, type AudioCurve, type Clip, type Timeline, type TransitionType } from "./timeline.js";
 
 /** Timeline transition → ffmpeg xfade transition name. */
 const XFADE: Record<TransitionType, string> = {
@@ -182,6 +182,27 @@ export function orderLayers(layers: GraphLayer[]): GraphLayer[] {
   return layers.map((l, i) => ({ l, z: l.zIndex ?? i, i })).sort((a, b) => a.z - b.z || a.i - b.i).map((x) => x.l);
 }
 
+/** Frame a still image to w×h (contain = pad, cover = crop), with optional Ken Burns zoom/pan via zoompan. */
+export function stillChain(c: Clip, w: number, h: number, fps: number): string {
+  const fit = c.still?.fit ?? "contain";
+  const base = fit === "cover"
+    ? `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}`
+    : `scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2`;
+  const kb = c.still?.kenBurns;
+  if (!kb) return `${base},format=yuv420p`;
+  const zf = kb.zoomFrom ?? 1;
+  const zt = kb.zoomTo ?? 1.2;
+  const from = kb.from ?? { x: 0.5, y: 0.5 };
+  const to = kb.to ?? from;
+  const n = Math.max(1, Math.round(clipDuration(c) * fps) - 1);
+  const prog = `min(on/${n},1)`;
+  const lerp = (a: number, b: number) => (a === b ? num(a) : `(${num(a)}+${num(b - a)}*${prog})`);
+  const fx = lerp(from.x, to.x);
+  const fy = lerp(from.y, to.y);
+  // Upscale 2x first so sub-pixel zoompan steps do not jitter; the window centre follows the focus point, kept inside the image.
+  return `${base},scale=${w * 2}:${h * 2},format=yuv420p,zoompan=z='${lerp(zf, zt)}':x='max(0,min(iw-iw/zoom,${fx}*iw-iw/zoom/2))':y='max(0,min(ih-ih/zoom,${fy}*ih-ih/zoom/2))':d=1:s=${w}x${h}:fps=${num(fps)}`;
+}
+
 const AFMT = "aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo";
 const num = (n: number) => Number(n.toFixed(6)).toString();
 
@@ -206,6 +227,11 @@ export function buildTimelineGraph(tl: Timeline, target: GraphTarget, sources: S
   const parts: string[] = [];
   let idx = 0;
   const addInput = (c: Clip) => {
+    if (isStillSrc(c.src)) {
+      // A still loops its single frame at the target rate for the clip duration.
+      inputArgs.push("-loop", "1", "-framerate", num(target.fps ?? 30), "-t", num(clipDuration(c)), "-i", c.src);
+      return idx++;
+    }
     inputArgs.push("-ss", num(c.in), "-t", num(clipDuration(c)), "-i", c.src);
     return idx++;
   };
@@ -244,17 +270,17 @@ export function buildTimelineGraph(tl: Timeline, target: GraphTarget, sources: S
     placements.forEach(({ clip: c, start, end }, k) => {
       const s = info(c);
       const d = clipDuration(c);
-      const i = addInput(c);
+      const still = isStillSrc(c.src);
+      // Stills contribute no audio; on an audio target they need no input at all.
+      const i = still && !isVideo ? -1 : addInput(c);
       let v: string | undefined;
       if (isVideo) {
         if (!s.hasVideo) throw new Error(`clip ${c.id}: ${c.src} has no video stream`);
         const { width: w, height: h, fps } = target as Required<GraphTarget>;
-        parts.push(
-          `[${i}:v]setpts=PTS-STARTPTS,scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps},format=yuv420p,trim=duration=${num(d)}[v${k}]`,
-        );
+        parts.push(`[${i}:v]setpts=PTS-STARTPTS,${still ? stillChain(c, w, h, fps) : `scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2`},setsar=1,fps=${fps},format=yuv420p,trim=duration=${num(d)}[v${k}]`);
         v = `[v${k}]`;
       }
-      if (s.hasAudio) parts.push(`[${i}:a]asetpts=PTS-STARTPTS,${AFMT}${gain(c)},apad,atrim=0:${num(d)}${clipFades(c)}[a${k}]`);
+      if (s.hasAudio && !still) parts.push(`[${i}:a]asetpts=PTS-STARTPTS,${AFMT}${gain(c)},apad,atrim=0:${num(d)}${clipFades(c)}[a${k}]`);
       else parts.push(`anullsrc=r=48000:cl=stereo,atrim=0:${num(d)},${AFMT}[a${k}]`);
       const a = `[a${k}]`;
       if (c.transition && chain) {

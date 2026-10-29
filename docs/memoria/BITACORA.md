@@ -110,3 +110,10 @@ Formato: `## YYYY-MM-DD — rama — resumen` + detalles (qué, tests, pendiente
 - Se escribe el SRT usado junto a la salida (`<output>.srt`) y se reporta en `result.captions`; `export.package` lo incluye como `captions.srt` si no se pasa `subtitles` (`sidecarCaptions:false` lo desactiva).
 - Nuevo `src/core/caption-source.ts` (resolución de fuente compartida con `captions.*`, parser WebVTT, cues inline, objeto de `transcribe`). `caption-render` acepta `videoEncodeArgs`.
 - Tests `tests/render-captions.test.ts` (VTT, fuentes, burn-in medido por luma en clip negro, sidecar + ZIP, auto engine, errores). Rama **no** fusionada.
+
+## 2026-10-28 — feat/loudness-stills — loudness en render/export + stills en el timeline
+- `loudness { targetLufs=-16, truePeakDb=-1, lra=11 }` en `render` y `export.package`, **apagado por defecto**. Dos pasadas `loudnorm` (medir → aplicar `measured_*` + `offset`, `linear=true`) sobre la mezcla final, después de captions; video copiado. Resultado `loudness {target,before,after,mode}`; sidecar `<output>.loudness.json` con sha256 que `export.package` vuelca en `spec.json.loudnessNormalization`.
+- Clips de imagen (png/jpg/webp) en pistas de video: `durationSec` obligatorio, `still.fit` contain|cover, Ken Burns opcional (`zoompan` sobre la imagen escalada 2x, foco 0..1), audio en silencio, compatibles con transiciones. En el tool MCP `in/out` pasan a opcionales para stills.
+- `render` devuelve `program {durationSec, clipsSec, overlapSec, gapSec}` (duración efectiva con solapes de transición).
+- Arreglo menor: `loadProducer()` devuelve `undefined` (no `null`); el chequeo del motor auto usa `== null`.
+- Tests `tests/loudness-stills.test.ts`. Rama **no** fusionada.

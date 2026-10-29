@@ -18,6 +18,38 @@ export interface Clip {
   transition?: Transition;
   /** Audio fade in/out of this clip (seconds from its own start/end), with an optional curve (default linear). */
   audioFade?: AudioFade;
+  /** Still-image clips (png/jpg/webp src): how long the image is shown. Required for stills; `in`/`out` are ignored. */
+  durationSec?: number;
+  /** Still-image framing and optional Ken Burns motion. Only for image sources. */
+  still?: StillOptions;
+}
+
+/** Image extensions rendered as still clips (looped single frame, silent audio). */
+export const STILL_EXT = /\.(png|jpe?g|webp)$/i;
+export const isStillSrc = (src: string): boolean => STILL_EXT.test(src);
+
+export const STILL_FITS = ["contain", "cover"] as const;
+export type StillFit = (typeof STILL_FITS)[number];
+/** Normalised focus point (0..1 of the frame, 0.5,0.5 = centre). */
+export interface FocusPoint {
+  x: number;
+  y: number;
+}
+export interface KenBurns {
+  /** Zoom factor at the clip start (>= 1, default 1). */
+  zoomFrom?: number;
+  /** Zoom factor at the clip end (>= 1, default 1.2). */
+  zoomTo?: number;
+  /** Focus point at the start (default centre). */
+  from?: FocusPoint;
+  /** Focus point at the end (default: same as `from`). */
+  to?: FocusPoint;
+}
+export interface StillOptions {
+  /** `contain` (default: whole image, padded) or `cover` (fill the frame, crop). */
+  fit?: StillFit;
+  /** Slow zoom/pan over the clip. */
+  kenBurns?: KenBurns;
 }
 
 /** Audio fade curves (ffmpeg afade/acrossfade curve in parentheses). */
@@ -103,7 +135,25 @@ export interface Timeline {
   tracks: Track[];
 }
 
-export const clipDuration = (c: Clip): number => Math.max(0, c.out - c.in);
+export const clipDuration = (c: Clip): number =>
+  isStillSrc(c.src) && c.durationSec !== undefined ? Math.max(0, c.durationSec) : Math.max(0, c.out - c.in);
+
+/**
+ * Effective program length of a track: sum of clip durations, minus transition overlaps, plus gaps.
+ * Equal to `trackDuration`, broken down so callers can report it.
+ */
+export function programBreakdown(t: Track): { durationSec: number; clipsSec: number; overlapSec: number; gapSec: number } {
+  const { placements } = placeClips(t);
+  let clipsSec = 0, overlapSec = 0, gapSec = 0, cursor = 0;
+  for (const p of placements) {
+    clipsSec += p.end - p.start;
+    if (p.start < cursor) overlapSec += cursor - p.start;
+    else gapSec += p.start - cursor;
+    cursor = Math.max(cursor, p.end);
+  }
+  const r = (n: number) => Math.round(n * 1e6) / 1e6;
+  return { durationSec: r(cursor), clipsSec: r(clipsSec), overlapSec: r(overlapSec), gapSec: r(gapSec) };
+}
 
 /** End of the last clip once positions (startSec, transitions) are resolved. */
 export const trackDuration = (t: Track): number => placeClips(t).placements.reduce((m, p) => Math.max(m, p.end), 0);
@@ -115,8 +165,24 @@ export function validateClip(c: Clip): string[] {
   const errs: string[] = [];
   if (!c.id) errs.push("clip: id is required");
   if (!c.src) errs.push(`clip ${c.id}: src is required`);
-  if (c.in < 0) errs.push(`clip ${c.id}: in < 0`);
-  if (c.out <= c.in) errs.push(`clip ${c.id}: out must be > in`);
+  if (c.src && isStillSrc(c.src)) {
+    if (!(c.durationSec !== undefined ? c.durationSec > 0 : c.out > c.in)) errs.push(`clip ${c.id}: still image needs durationSec > 0`);
+    const st = c.still;
+    if (st?.fit && !STILL_FITS.includes(st.fit)) errs.push(`clip ${c.id}: unknown still fit ${st.fit}`);
+    const kb = st?.kenBurns;
+    if (kb) {
+      for (const k of ["zoomFrom", "zoomTo"] as const)
+        if (kb[k] !== undefined && !(kb[k]! >= 1 && kb[k]! <= 4)) errs.push(`clip ${c.id}: kenBurns.${k} must be in [1, 4]`);
+      for (const k of ["from", "to"] as const) {
+        const f = kb[k];
+        if (f && !(f.x >= 0 && f.x <= 1 && f.y >= 0 && f.y <= 1)) errs.push(`clip ${c.id}: kenBurns.${k} must be within 0..1`);
+      }
+    }
+  } else {
+    if (c.still) errs.push(`clip ${c.id}: still options need an image source (png/jpg/webp)`);
+    if (c.in < 0) errs.push(`clip ${c.id}: in < 0`);
+    if (c.out <= c.in) errs.push(`clip ${c.id}: out must be > in`);
+  }
   if (c.transition?.curve && !AUDIO_CURVES.includes(c.transition.curve)) errs.push(`clip ${c.id}: unknown transition curve ${c.transition.curve}`);
   if (c.audioFade) {
     const { inSec = 0, outSec = 0, curve } = c.audioFade;
