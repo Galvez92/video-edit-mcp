@@ -45,6 +45,21 @@ MCP client config (stdio):
 - `engine`: `auto` (default: HyperFrames when the optional peer is installed, otherwise ffmpeg/libass with a warning), `hyperframes` or `ffmpeg`. The burn-in pass encodes with the preset's video settings and copies the audio.
 - The SRT actually burned is written next to the output (`final.srt`, or `srtOutput`) and reported in `captions.srt`. `export.package` includes that sidecar as `captions.srt` when `subtitles` is omitted (`sidecarCaptions: false` to skip).
 
+## Still images on the timeline
+A video-track clip whose `src` is a `.png`, `.jpg`/`.jpeg` or `.webp` is a still: pass `durationSec` (no `in`/`out`). It is framed to the preset (`still.fit`: `contain`, the default, pads; `cover` fills and crops), carries silent audio and joins neighbours with any transition.
+```json
+{ "id": "title", "src": "poster.jpg", "durationSec": 3,
+  "still": { "fit": "cover", "kenBurns": { "zoomFrom": 1, "zoomTo": 1.25, "from": { "x": 0.3, "y": 0.5 }, "to": { "x": 0.6, "y": 0.4 } } } }
+```
+Ken Burns is optional: zoom 1..4 and a focus point (0..1 of the frame) interpolated linearly over the clip. Stills are not allowed on audio tracks.
+
+`render` also returns `program: { durationSec, clipsSec, overlapSec, gapSec }`: the effective program length is the sum of clips minus transition overlaps plus gaps (each transition shortens the program by its `durationSec`).
+
+## Loudness normalization
+`render` and `export.package` accept `loudness: { targetLufs?: -16, truePeakDb?: -1, lra?: 11 }`. **Off by default**; pass `{}` for the defaults. Two-pass ffmpeg `loudnorm` on the final mix (after captions): pass 1 measures, pass 2 applies the measured values (`linear` gain when the true-peak ceiling allows it, otherwise `limited`: gain + 4x-oversampled limiter with up to 3 measured gain corrections, because loudnorm dynamic undershoots on short mixes). Video is stream-copied.
+- `render` returns `loudness: { target, before, after, mode }` and writes `<output>.loudness.json`; `export.package` copies it into `spec.json` as `loudnessNormalization` (only while its checksum matches the file).
+- `export.package { loudness }` normalizes a copy before packaging; the source file is untouched. `spec.loudness` is always measured on the packaged file.
+
 ## Roadmap
 1. Cut / trim / concat / assemble timeline
 2. Local transcription (Whisper) · animated captions rendered with HyperFrames (SRT/ASS export + ffmpeg fallback) · reframe 9:16/1:1/16:9 · audio mix, ducking, loudnorm −16 LUFS
