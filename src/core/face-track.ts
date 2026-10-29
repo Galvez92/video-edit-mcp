@@ -135,5 +135,5 @@ function expressionFor(values: number[], times: number[]): string {
     expr = `if(between(t,${ta},${tb}),${seg},${expr})`;
   }
   expr = `if(lt(t,${t[0]}),${values[0]},${expr})`;
-  return expr.replace(/,/g, "\\,");
+  return expr.replace(/\\/g, "\\\\").replace(/,/g, "\\,");
 }
