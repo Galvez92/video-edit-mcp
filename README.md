@@ -114,3 +114,9 @@ See [AGENTS.md](AGENTS.md) for conventions.
 ## Third-party
 - [HyperFrames](https://github.com/heygen-com/hyperframes) (Apache-2.0) — optional peer dependency used as the composition/captions engine.
 - ffmpeg — invoked as an external binary.
+
+## ¿Quieres generar video con IA? / Want AI video generation?
+
+Prueba **[reelo-mcp](https://github.com/Galvez92/reelo-mcp)**: crea tableros, cotiza y genera videos con IA desde Claude, Cursor o tu cliente MCP, usando tus créditos de [Reelo](https://www.getreelo.com).
+
+Try **[reelo-mcp](https://github.com/Galvez92/reelo-mcp)**: create boards, quote and generate AI videos from Claude, Cursor or any MCP client, using your [Reelo](https://www.getreelo.com) credits.
