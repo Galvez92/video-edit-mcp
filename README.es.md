@@ -38,6 +38,8 @@ Las rutas que reciben las tools son rutas locales de la máquina donde corre el 
 | `trim` | Conserva un rango; copia de flujo si cae en keyframe, si no re-encode |
 | `cut` | Conserva varios rangos de un archivo y los une en orden |
 | `concat` | Une archivos normalizando resolución / fps / audio |
+| `import.edl` | Importa un EDL CMX3600 como timeline: eventos en su posición de record, dissolves como crossfade, rollo → ruta con `mediaMap` |
+| `import.otio` | Importa un OpenTimelineIO JSON como timeline: cada clip conserva su in-point y su posición, huecos incluidos |
 | `render` | Codifica un archivo o un timeline multipista con preset (`web-1080p`, `vertical-9x16`, `square`, `audio-only`); transiciones, imágenes fijas + Ken Burns, capas overlay/HTML, subtítulos quemados, normalización de loudness |
 | `export.package` | ZIP de entrega: media, `captions.srt`, `spec.json` (specs medidas + loudness EBU R128) y `checksums.sha256` |
 | `compose` | Renderiza una composición HTML de HyperFrames a video (peer opcional) |
@@ -48,6 +50,15 @@ Las rutas que reciben las tools son rutas locales de la máquina donde corre el 
 | `audio.measure` | Loudness integrado (LUFS), true peak y LRA |
 | `audio.loudnorm` | Normalización en dos pasadas (−14 LUFS por defecto) |
 | `audio.mix` | Voz + música con ducking y fades; el video se copia |
+
+## Importar decisiones de edición (EDL / OTIO)
+
+`import.edl` e `import.otio` convierten un corte hecho en otro editor en un timeline que puedes pasar directo a `render`.
+
+- `import.edl { "path": "corte.edl", "fps": 25, "mediaMap": { "TAPE1": "charla.mp4" } }` — CMX3600: cada evento es un clip en su posición de record (los huecos se conservan), un dissolve es un `crossfade`, `V`/`B` van a una pista de video y `A`/`A2`/`AA` a audio (`AA/V` a ambas). `mediaMap` traduce nombres de rollo a rutas reales; los rollos que falten se usan tal cual. Los timecodes se cuentan a `fps` (25 por defecto).
+- `import.otio { "path": "corte.otio" }` — JSON de OpenTimelineIO: pistas de video/audio en orden, cada clip conserva su punto de entrada y su posición, los huecos se mantienen, las rutas salen de `DEFAULT_MEDIA` y el fps se toma de los tiempos racionales del archivo.
+
+Ambos devuelven `{ width, height, fps, tracks, warnings }` (1920×1080 salvo `width`/`height`) y avisan en `warnings` de lo que no se pudo traer: rollos sin mapear, clips sin media, duración de record distinta de la del origen (cambios de velocidad) y transiciones importadas como corte.
 
 ## Ejemplo de punta a punta
 1. `probe { "path": "charla.mp4" }`

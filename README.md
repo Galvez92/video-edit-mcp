@@ -40,6 +40,8 @@ All paths passed to tools are local file paths on the machine running the server
 | `trim` | Keep one range; stream copy when keyframe-safe, re-encode otherwise |
 | `cut` | Keep several ranges of one file and join them in order |
 | `concat` | Join files into one, normalizing resolution / fps / audio |
+| `import.edl` | Import a CMX3600 EDL as a timeline: events at their record positions, dissolves as crossfades, reel → path via `mediaMap` |
+| `import.otio` | Import an OpenTimelineIO JSON file as a timeline: clips keep their source in-point and position, gaps preserved |
 | `render` | Encode a file or a multi-track timeline with a preset (`web-1080p`, `vertical-9x16`, `square`, `audio-only`); transitions, stills + Ken Burns, overlay/HTML layers, burned-in captions, loudness normalization |
 | `export.package` | Delivery ZIP: media, `captions.srt`, `spec.json` (measured specs + EBU R128 loudness) and `checksums.sha256` |
 | `compose` | Render a HyperFrames HTML composition to video (optional peer) |
@@ -100,8 +102,16 @@ Ken Burns is optional: zoom 1..4 and a focus point (0..1 of the frame) interpola
 - `render` returns `loudness: { target, before, after, mode }` and writes `<output>.loudness.json`; `export.package` copies it into `spec.json` as `loudnessNormalization` (only while its checksum matches the file).
 - `export.package { loudness }` normalizes a copy before packaging; the source file is untouched. `spec.loudness` is always measured on the packaged file.
 
+## Importing edit decisions (EDL / OTIO)
+
+`import.edl` and `import.otio` turn a cut made in another editor into a timeline you can pass straight to `render`.
+
+- `import.edl { "path": "cut.edl", "fps": 25, "mediaMap": { "TAPE1": "talk.mp4" } }` — CMX3600: every event becomes a clip at its record position (record gaps stay gaps), a dissolve becomes a `crossfade`, `V`/`B` events go to a video track and `A`/`A2`/`AA` to audio (`AA/V` to both). `mediaMap` maps reel names to real paths; reels left out are used as written. Timecodes are counted at `fps` (default 25).
+- `import.otio { "path": "cut.otio" }` — OpenTimelineIO JSON: video/audio tracks in order, clips keep their source in-point and track position, gaps are preserved, media paths come from `DEFAULT_MEDIA`, and the frame rate comes from the file's rational times.
+
+Both return `{ width, height, fps, tracks, warnings }` (1920×1080 unless `width`/`height` are given) and report in `warnings` whatever they could not carry over: unmapped reels, clips without a media reference, a record duration that differs from the source (speed changes), transitions imported as cuts.
+
 ## Roadmap
-- EDL / OTIO import
 - Published npm package
 
 ## Development
