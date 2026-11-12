@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `import.edl` and `import.otio`: import edit decisions from another editor as a `Timeline` you can pass to `render`. CMX3600: every event becomes a clip at its record position (gaps preserved), a dissolve becomes a `crossfade`, `V`/`B` events go to a video track and `A`/`A2`/`AA` to audio (`AA/V` to both), and `mediaMap` translates reel names to local paths. OpenTimelineIO: video/audio tracks in order, clips keep their source in-point and track position, gaps advance the program, media paths come from `DEFAULT_MEDIA` and the frame rate from the file's rational times. Both report what they could not carry over (unmapped reels, clips without media, record/source duration mismatches, transitions imported as cuts) in `warnings`.
+
 ## 0.1.0 — 2026-10-29
 
 First public release. Local MCP server for video editing over stdio or Streamable HTTP.

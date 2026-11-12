@@ -62,6 +62,7 @@ node dist/index.js --http --port 3333   # Streamable HTTP on /mcp
 - Run every check inside the container: `docker compose -f docker-compose.sandbox.yml exec -T mcp npm run lint|typecheck|test|build`. Tests generate their own synthetic fixtures; `npm run fixtures` writes them to `tests/fixtures` (git-ignored).
 - Caption burn-in (libass) needs `fonts-dejavu-core`; `.sandbox/Dockerfile` installs it alongside ffmpeg.
 - `@hyperframes/producer` is intentionally **not** installed in the sandbox (optional peer that pulls puppeteer + Chrome): its tests skip and `captions.render` reports the HyperFrames engine as unavailable, while the `ffmpeg` engine path runs for real.
+- Base44 preview entry: `docker-compose.base44.yml` runs exactly this setup (same image, command and healthcheck) with the `base44.*` labels the editor reads; `.base44/environment.json` records its start command and health path. Run one compose file at a time — both publish host port 3000.
 
 ## Memory (update every time)
 - `docs/memoria/BITACORA.md` — single append-only log. Add a dated entry (YYYY-MM-DD) per merged change: what, branch, tests.

@@ -122,3 +122,10 @@ Formato: `## YYYY-MM-DD — rama — resumen` + detalles (qué, tests, pendiente
 - Repo: `delete_branch_on_merge`, `allow_auto_merge`, alertas + security updates de Dependabot, CodeQL default setup (actions, javascript-typescript), private vulnerability reporting.
 - Archivos: `dependabot.yml` agrupado semanal (hyperframes manual), `permissions: contents: read` en CI y `pull_request` solo a main, plantilla de PR, CODEOWNERS, SECURITY.md (sin auth: exponer tras proxy con token).
 - Ruleset en main tras verificar el nombre del check: `test` requerido, PR obligatorio (0 aprobaciones), sin borrado ni force-push.
+
+## 2026-11-11 — feat/interchange — import de EDL / OTIO como timeline
+- `src/core/interchange.ts`: `parseEdl`/`importEdl` (CMX3600: cada evento en su posición de record, dissolves → `crossfade`, `V`/`B` video, `A`/`A2`/`AA` audio, `mediaMap` rollo → ruta, avisos de rollo sin mapear y de duración record ≠ origen) e `importOtio` (OpenTimelineIO JSON: clips + gaps por pista de video/audio, `DEFAULT_MEDIA` → `src`, fps del tiempo racional más frecuente). La salida se valida con `validateTimeline`.
+- `src/tools/interchange.ts` registra `import.edl` e `import.otio`; el resultado se pasa directo a `render`.
+- Docs: README y README.es (tabla de tools + sección de import), CHANGELOG (`Unreleased`), ficha `feat-interchange` en review, roadmap de README sin "EDL / OTIO import".
+- Tests: `tests/interchange.test.ts` (5: EDL feliz, EDL malformado con línea, archivo ausente, OTIO clips + gaps, JSON inválido / stack vacío); `tests/server.test.ts` actualiza la lista de tools. `npm run lint`, `npm run typecheck` y el resto de la suite en verde (151 pasan; los 5 fallos de HyperFrames/Chrome son preexistentes e idénticos en `main`).
+- Rama: `base44/setup-7eb3dab9` (sobre `main` @ 4347472). **No** fusionada.

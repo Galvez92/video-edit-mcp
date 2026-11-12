@@ -8,6 +8,7 @@ import { loudnorm, measure, mix } from "./core/audiomix.js";
 import { transcribe, whisperStatus } from "./core/whisper.js";
 import { registerCaptionTools } from "./tools/captions.js";
 import { registerReframeTool } from "./tools/reframe.js";
+import { registerInterchangeTools } from "./tools/interchange.js";
 import { fail, json } from "./tools/result.js";
 import { compose } from "./core/compose.js";
 import { AUDIO_CURVES, isStillSrc, STILL_FITS, TRANSITION_TYPES, type Timeline } from "./core/timeline.js";
@@ -414,6 +415,7 @@ export function createServer(): McpServer {
   );
   registerCaptionTools(server);
   registerReframeTool(server);
+  registerInterchangeTools(server);
 
   return server;
 }
